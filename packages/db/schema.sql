@@ -13,12 +13,18 @@ CREATE TABLE IF NOT EXISTS friends (
   is_following     INTEGER NOT NULL DEFAULT 1,
   user_id          TEXT,
   score            INTEGER NOT NULL DEFAULT 0,
+  stripe_customer_id    TEXT,
+  subscription_id       TEXT,
+  subscription_status   TEXT DEFAULT NULL,
+  current_period_end    TEXT DEFAULT NULL,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_friends_line_user_id ON friends (line_user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_user_id ON friends (user_id);
+CREATE INDEX IF NOT EXISTS idx_friends_stripe_customer ON friends (stripe_customer_id);
+CREATE INDEX IF NOT EXISTS idx_friends_subscription_status ON friends (subscription_status);
 
 -- ============================================================
 -- Tags
