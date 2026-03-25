@@ -183,11 +183,12 @@ stripe.get('/api/membership/:friendId', async (c) => {
     const status = c.req.query('status');
 
     const friend = await db
-      .prepare(`SELECT id, display_name, subscription_status, subscription_id, current_period_end, stripe_customer_id FROM friends WHERE id = ?`)
+      .prepare(`SELECT id, display_name, picture_url, subscription_status, subscription_id, current_period_end, stripe_customer_id FROM friends WHERE id = ?`)
       .bind(friendId)
       .first<{
         id: string;
         display_name: string | null;
+        picture_url: string | null;
         subscription_status: string | null;
         subscription_id: string | null;
         current_period_end: string | null;
@@ -739,6 +740,7 @@ function renderMembershipPage(
   friend: {
     id: string;
     display_name: string | null;
+    picture_url: string | null;
     subscription_status: string | null;
     subscription_id: string | null;
     current_period_end: string | null;
@@ -755,6 +757,7 @@ function renderMembershipPage(
   const initData = JSON.stringify({
     friendId: friend.id,
     displayName: friend.display_name,
+    pictureUrl: friend.picture_url,
     subscriptionStatus: friend.subscription_status,
     subscriptionId: friend.subscription_id,
     currentPeriodEnd: friend.current_period_end,
@@ -885,20 +888,21 @@ function renderMembershipPage(
     var INIT = ${initData};
     var API = '${WORKERS_URL}';
     var FID = INIT.friendId;
-    var liffProfile = null;
 
-    // LIFF Init
-    (function() {
+    // Set profile from DB data immediately
+    if (INIT.pictureUrl) document.getElementById('profileImg').src = INIT.pictureUrl;
+
+    // LIFF Init — override with fresh LINE profile if available
+    try {
       liff.init({ liffId: '${LIFF_ID}' }).then(function() {
         if (liff.isLoggedIn()) {
           liff.getProfile().then(function(p) {
-            liffProfile = p;
             document.getElementById('profileName').textContent = p.displayName;
             if (p.pictureUrl) document.getElementById('profileImg').src = p.pictureUrl;
           }).catch(function(){});
         }
       }).catch(function(e) { console.warn('LIFF init failed:', e); });
-    })();
+    } catch(e) { console.warn('LIFF SDK not available:', e); }
 
     // Flash
     if (INIT.flashStatus === 'success') {
