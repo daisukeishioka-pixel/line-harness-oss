@@ -2,19 +2,21 @@ import type { Context, Next } from 'hono';
 import type { Env } from '../index.js';
 
 export async function authMiddleware(c: Context<Env>, next: Next): Promise<Response | void> {
-  // Skip auth for the LINE webhook endpoint — it uses signature verification instead
-  // Skip auth for OpenAPI docs — public documentation
   const path = new URL(c.req.url).pathname;
+
+  // Public paths — no API_KEY required
+  // These are protected by other means (LINE signature, Stripe signature, LIFF token, etc.)
   if (
     path === '/webhook' ||
     path === '/docs' ||
     path === '/openapi.json' ||
     path === '/api/affiliates/click' ||
+    path === '/api/integrations/stripe/webhook' ||
+    path === '/api/checkout' ||
+    path === '/liff' ||
     path.startsWith('/t/') ||
     path.startsWith('/api/liff/') ||
     path.startsWith('/auth/') ||
-    path === '/api/integrations/stripe/webhook' ||
-    path === '/api/checkout' ||
     path.startsWith('/api/membership/') ||
     path.match(/^\/api\/webhooks\/incoming\/[^/]+\/receive$/) ||
     path.match(/^\/api\/forms\/[^/]+\/submit$/) ||
