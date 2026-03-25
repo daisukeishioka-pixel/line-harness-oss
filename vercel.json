@@ -1,6 +1,4 @@
 {
-  "buildCommand": "pnpm --filter web build",
-  "outputDirectory": "apps/web/out",
-  "installCommand": "pnpm install",
-  "framework": null
+  "buildCommand": "pnpm --filter web build && mkdir -p .vercel/output/static && cp -r apps/web/out/* .vercel/output/static/ && echo '{\"version\":3}' > .vercel/output/config.json",
+  "installCommand": "pnpm install"
 }
