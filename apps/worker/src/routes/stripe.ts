@@ -55,7 +55,13 @@ async function stripeRequest(
     },
     body: body ? new URLSearchParams(body).toString() : undefined,
   });
-  return res.json();
+  const data = await res.json() as Record<string, unknown>;
+  if (!res.ok) {
+    const err = data.error as Record<string, unknown> | undefined;
+    const msg = (err?.message as string) ?? `Stripe API error: ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
 }
 
 /** DB + Stripeキー + フレンド情報を取得する共通ヘルパー */
