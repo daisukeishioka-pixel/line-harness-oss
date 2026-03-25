@@ -56,8 +56,18 @@ function memberPageCSS(): string {
     .cal-header { font-size: 10px; font-weight: 700; color: var(--text-sub); padding: 4px 0; }
     .cal-day { position: relative; padding: 6px 0; font-size: 12px; border-radius: 8px; cursor: pointer; }
     .cal-day.today { font-weight: 700; color: var(--green); }
-    .cal-day.has-activity::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    .cal-day .cal-dots { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; }
+    .cal-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .cal-dot.video { background: #ef4444; }
+    .cal-dot.manual { background: #22c55e; }
     .cal-day.empty { color: transparent; cursor: default; }
+    .memo-modal { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.4); display: none; justify-content: center; align-items: center; padding: 24px; }
+    .memo-modal.show { display: flex; }
+    .memo-box { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 320px; }
+    .memo-box h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--green); }
+    .memo-box input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; margin-bottom: 12px; }
+    .memo-box .memo-btns { display: flex; gap: 8px; }
+    .memo-box .memo-btns button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
     .cal-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .cal-nav button { background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: var(--text-sub); }
     .cal-nav span { font-size: 14px; font-weight: 600; }
@@ -588,7 +598,8 @@ liffRoutes.get('/liff/home', (c) => {
 <style>${memberPageCSS()}</style></head><body>
 <div class="header-bar"><h1>整体卒業サロン</h1><p>ホーム</p></div>
 <div class="container">
-  <div class="card" id="calendarCard"><p class="section-title">&#x1f4c5; アクティビティカレンダー</p><div id="calArea"></div><div id="goalArea" style="margin-top:10px"></div></div>
+  <div class="card" id="calendarCard"><p class="section-title">&#x1f4c5; アクティビティカレンダー</p><div style="display:flex;gap:12px;font-size:11px;color:var(--text-sub);margin-bottom:8px"><span><span class="cal-dot video" style="display:inline-block;vertical-align:middle"></span> 動画視聴</span><span><span class="cal-dot manual" style="display:inline-block;vertical-align:middle"></span> 手動記録</span></div><div id="calArea"></div><div id="goalArea" style="margin-top:10px"></div></div>
+  <div class="memo-modal" id="memoModal"><div class="memo-box"><h3 id="memoDate"></h3><input id="memoInput" placeholder="例: 朝ストレッチ、ヨガ30分"><div class="memo-btns"><button style="background:#f0f0f0;color:var(--text)" onclick="closeMemo()">キャンセル</button><button style="background:var(--green);color:#fff" onclick="saveMemo()">記録する</button></div></div></div>
   <div class="card" id="scheduleCard"><p class="section-title">&#x1f4e1; 次回Live配信</p><p class="empty">読み込み中...</p></div>
   <div class="card" id="newContentCard"><p class="section-title">&#x2728; 新着コンテンツ</p><p class="empty">読み込み中...</p></div>
   <div class="card" id="newsCard"><p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">読み込み中...</p></div>
@@ -597,7 +608,7 @@ ${bottomNavHTML('home', w)}
 <div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
 <script>
 ${liffInitScript(liffId, w)}
-var calYear, calMonth, activities = [];
+var calYear, calMonth, activities = [], memoDate = '';
 
 function renderCalendar() {
   var now = new Date();
@@ -605,8 +616,15 @@ function renderCalendar() {
   var first = new Date(calYear, calMonth, 1);
   var last = new Date(calYear, calMonth + 1, 0);
   var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-  var actDates = {};
-  activities.forEach(function(a) { actDates[a.activity_date.slice(0,10)] = true; });
+
+  // 日付ごとにアクティビティタイプを集計
+  var dayInfo = {};
+  activities.forEach(function(a) {
+    var key = a.activity_date.slice(0,10);
+    if (!dayInfo[key]) dayInfo[key] = { video: false, manual: false };
+    if (a.activity_type === 'video_watch' || a.activity_type === 'live_attend') dayInfo[key].video = true;
+    else dayInfo[key].manual = true;
+  });
 
   var h = '<div class="cal-nav"><button onclick="changeMonth(-1)">&lt;</button><span>' + calYear + '年' + (calMonth+1) + '月</span><button onclick="changeMonth(1)">&gt;</button></div>';
   h += '<div class="calendar">';
@@ -616,26 +634,44 @@ function renderCalendar() {
     var ds = calYear + '-' + String(calMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
     var cls = 'cal-day';
     if (ds === todayStr) cls += ' today';
-    if (actDates[ds]) cls += ' has-activity';
-    h += '<div class="' + cls + '" onclick="logActivity(\\'' + ds + '\\')">' + d + '</div>';
+    var dots = '';
+    if (dayInfo[ds]) {
+      dots = '<div class="cal-dots">';
+      if (dayInfo[ds].video) dots += '<div class="cal-dot video"></div>';
+      if (dayInfo[ds].manual) dots += '<div class="cal-dot manual"></div>';
+      dots += '</div>';
+    }
+    h += '<div class="' + cls + '" onclick="openMemo(\\'' + ds + '\\')">' + d + dots + '</div>';
   }
   h += '</div>';
-  h += '<div style="margin-top:8px;text-align:center"><button class="btn-sm btn-green" onclick="logManual()">&#x1f4aa; ストレッチした！</button></div>';
   document.getElementById('calArea').innerHTML = h;
 }
+
 function changeMonth(delta) { calMonth += delta; if (calMonth < 0) { calMonth = 11; calYear--; } if (calMonth > 11) { calMonth = 0; calYear++; } loadActivities(); }
-function logActivity(date) { logManualForDate(date); }
-function logManual() {
-  var now = new Date(); var ds = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-  logManualForDate(ds);
+
+function openMemo(date) {
+  memoDate = date;
+  var parts = date.split('-');
+  document.getElementById('memoDate').textContent = parts[1] + '月' + parseInt(parts[2]) + '日の記録';
+  document.getElementById('memoInput').value = '';
+  document.getElementById('memoModal').classList.add('show');
+  document.getElementById('memoInput').focus();
 }
-function logManualForDate(ds) {
-  if (!friendId) return;
+
+function closeMemo() {
+  document.getElementById('memoModal').classList.remove('show');
+}
+
+function saveMemo() {
+  var note = document.getElementById('memoInput').value.trim();
+  if (!note || !friendId) return;
+  var btn = event.target; btn.disabled = true; btn.textContent = '記録中...';
   fetch(API + '/api/membership/' + friendId + '/activities', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activityType: 'manual', activityDate: ds, note: 'ストレッチ' }),
-  }).then(function() { loadActivities(); });
+    body: JSON.stringify({ activityType: 'manual', activityDate: memoDate, note: note }),
+  }).then(function() { closeMemo(); loadActivities(); }).catch(function() { btn.disabled = false; btn.textContent = '記録する'; });
 }
+
 function loadActivities() {
   if (!friendId) return;
   var monthKey = calYear + '-' + String(calMonth+1).padStart(2,'0');
