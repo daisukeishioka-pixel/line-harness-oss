@@ -997,7 +997,7 @@ function renderMembershipPage(
     }
 
     function renderPills() {
-      var h = ''; CATS.forEach(function(c) { h += '<button class="pill' + (c.key === selectedCat ? ' active' : '') + "\" onclick=\"filterCat('" + c.key + "')\">" + c.label + '</button>'; });
+      var h = ''; CATS.forEach(function(c) { h += '<button class="pill' + (c.key === selectedCat ? ' active' : '') + '" onclick="filterCat(\\'' + c.key + '\\')">' + c.label + '</button>'; });
       document.getElementById('categoryPills').innerHTML = h;
     }
     function filterCat(cat) { selectedCat = cat; renderPills(); renderCL(); }
