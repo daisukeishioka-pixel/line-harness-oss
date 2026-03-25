@@ -831,16 +831,132 @@ liffRoutes.get('/liff/mypage', (c) => {
   const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>マイページ - 整体卒業サロン</title>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<style>${memberPageCSS()}</style></head><body>
+<style>${memberPageCSS()}
+  .profile-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .profile-header img { width: 48px; height: 48px; border-radius: 50%; }
+  .profile-name { font-size: 16px; font-weight: 700; }
+  .profile-sub { font-size: 12px; color: var(--text-sub); }
+  .status-badge { display: inline-block; padding: 4px 14px; border-radius: 16px; font-size: 12px; font-weight: 700; color: #fff; }
+  .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-label { color: var(--text-sub); }
+  .info-value { font-weight: 600; }
+  .btn-outline { background: var(--card); color: #e53e3e; border: 1.5px solid #e53e3e; }
+  .btn-secondary { background: #f0f0f0; color: var(--text); }
+  .invoice-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .invoice-row:last-child { border-bottom: none; }
+</style></head><body>
 <div class="header-bar"><h1>整体卒業サロン</h1><p>マイページ</p></div>
-<div class="container"><div id="content"><p class="empty">読み込み中...</p></div></div>
+<div class="container">
+  <div id="loading"><p class="empty">読み込み中...</p></div>
+  <div id="profileCard" style="display:none" class="card"></div>
+  <div id="statusCard" style="display:none" class="card"></div>
+  <div id="planCard" style="display:none" class="card"></div>
+  <div id="invoiceCard" style="display:none" class="card"></div>
+  <div id="actionsCard" style="display:none" class="card"></div>
+</div>
 ${bottomNavHTML('mypage', w)}
 <script>
 ${liffInitScript(liffId, w)}
+var STATUS_MAP = {
+  active: { label: 'アクティブ', color: '#1a6b5a' },
+  trialing: { label: 'アクティブ', color: '#1a6b5a' },
+  paused: { label: '休会中', color: '#d4a853' },
+  cancel_scheduled: { label: '退会予定', color: '#ef4444' },
+  incomplete: { label: '入金待ち', color: '#3b82f6' },
+  past_due: { label: '支払い未完了', color: '#f59e0b' },
+  canceled: { label: '解約済み', color: '#999' }
+};
+function isMember(s) { return s === 'active' || s === 'trialing' || s === 'paused' || s === 'cancel_scheduled'; }
+
+var profileName = '', profilePic = '';
+
 initLiff().then(function() {
-  // マイページはstripe.tsのrenderMembershipPageを使う
-  window.location.replace(API + '/api/membership/' + friendId);
-}).catch(function(e) { if (e !== 'login') console.error(e); });
+  // LINEプロフィール取得
+  return liff.getProfile();
+}).then(function(profile) {
+  profileName = profile.displayName;
+  profilePic = profile.pictureUrl || '';
+
+  // 会員ステータス取得
+  return fetch(API + '/api/membership/' + friendId, {
+    headers: { 'Accept': 'application/json' }
+  }).then(function(r) { return r.json(); });
+}).then(function(res) {
+  document.getElementById('loading').style.display = 'none';
+
+  if (!res.success) { document.getElementById('loading').innerHTML = '<p class="empty">データの取得に失敗しました</p>'; document.getElementById('loading').style.display = ''; return; }
+  var d = res.data;
+  var s = d.subscriptionStatus || 'none';
+  var info = STATUS_MAP[s] || { label: '未登録', color: '#999' };
+
+  // プロフィール
+  var pc = document.getElementById('profileCard'); pc.style.display = '';
+  pc.innerHTML = '<div class="profile-header">' +
+    (profilePic ? '<img src="' + esc(profilePic) + '">' : '<div style="width:48px;height:48px;border-radius:50%;background:#e0e0e0;display:flex;align-items:center;justify-content:center;font-size:18px;color:#999">' + esc(profileName[0] || '?') + '</div>') +
+    '<div><div class="profile-name">' + esc(profileName) + '</div><div class="profile-sub">整体卒業サロン</div></div></div>';
+
+  // ステータスバッジ
+  var sc = document.getElementById('statusCard'); sc.style.display = '';
+  var sh = '<div style="text-align:center"><span class="status-badge" style="background:' + info.color + '">' + info.label + '</span></div>';
+  if (isMember(s)) {
+    sh += '<div class="info-row"><span class="info-label">プラン</span><span class="info-value">月額 2,980円</span></div>';
+    sh += '<div class="info-row"><span class="info-label">' + (s === 'cancel_scheduled' ? '利用可能期限' : '次回請求日') + '</span><span class="info-value">' + fmtDate(d.currentPeriodEnd) + '</span></div>';
+  }
+  if (s === 'paused') sh += '<p style="font-size:12px;color:#92400e;margin-top:10px;text-align:center">現在休会中です。課金は停止されています。</p>';
+  if (s === 'cancel_scheduled') sh += '<p style="font-size:12px;color:#ef4444;margin-top:10px;text-align:center">退会予定です。' + fmtDate(d.currentPeriodEnd) + 'まで利用できます。</p>';
+  if (!isMember(s) && s !== 'incomplete' && s !== 'past_due') {
+    sh += '<div style="margin-top:16px;text-align:center"><p style="font-size:13px;color:var(--text-sub);margin-bottom:12px">月額 2,980円（税込）</p>';
+    sh += '<button class="btn btn-green" onclick="location.href=\\'' + API + '/liff/signup\\'">メンバーシップに登録する</button></div>';
+  }
+  sc.innerHTML = sh;
+
+  // プラン情報
+  if (isMember(s) || s === 'past_due') {
+    var plc = document.getElementById('planCard'); plc.style.display = '';
+    plc.innerHTML = '<p class="section-title">&#x1f4cb; プラン情報</p>' +
+      '<button class="btn btn-secondary" onclick="openPortal()">お支払い方法を変更する</button>';
+  }
+
+  // 支払い履歴
+  if (d.stripeCustomerId) {
+    fetch(API + '/api/membership/' + friendId + '/invoices').then(function(r) { return r.json(); }).then(function(inv) {
+      var ic = document.getElementById('invoiceCard'); ic.style.display = '';
+      if (!inv.success || !inv.data || !inv.data.length) { ic.innerHTML = '<p class="section-title">&#x1f4b3; 支払い履歴</p><p class="empty">支払い履歴はありません</p>'; return; }
+      var h = '<p class="section-title">&#x1f4b3; 支払い履歴</p>';
+      inv.data.forEach(function(i) { h += '<div class="invoice-row"><div>' + fmtDate(i.createdAt) + '</div><div style="display:flex;align-items:center;gap:8px"><strong>&yen;' + (i.amount/100).toLocaleString() + '</strong>' + (i.receiptUrl ? '<a href="' + i.receiptUrl + '" target="_blank" style="color:var(--green);font-size:11px">領収書</a>' : '') + '</div></div>'; });
+      ic.innerHTML = h;
+    });
+  }
+
+  // アカウント管理
+  if (isMember(s) || s === 'past_due') {
+    var ac = document.getElementById('actionsCard'); ac.style.display = '';
+    var ah = '<p class="section-title">&#x2699;&#xfe0f; アカウント管理</p>';
+    if (s === 'active') ah += '<button class="btn btn-secondary" style="margin-bottom:8px" onclick="doAction(\\'/pause\\',this,\\'休会する\\',\\'休会しますか？課金が停止されます。\\')">休会する</button><button class="btn btn-outline" onclick="doAction(\\'/cancel\\',this,\\'退会する\\',\\'退会しますか？現在の請求期間末まで利用できます。\\')">退会する</button>';
+    else if (s === 'paused') ah += '<button class="btn btn-green" style="margin-bottom:8px" onclick="doAction(\\'/resume\\',this,\\'復帰する\\',null)">復帰する</button><button class="btn btn-outline" onclick="doAction(\\'/cancel\\',this,\\'退会する\\',\\'退会しますか？\\')">退会する</button>';
+    else if (s === 'cancel_scheduled') ah += '<button class="btn btn-green" onclick="undoCancel()">退会をキャンセルする</button>';
+    else if (s === 'past_due') ah += '<button class="btn btn-secondary" onclick="openPortal()">お支払い方法を更新する</button>';
+    ac.innerHTML = ah;
+  }
+}).catch(function(e) { if (e !== 'login') { document.getElementById('loading').innerHTML = '<p class="empty">エラーが発生しました</p>'; console.error(e); } });
+
+function openPortal() {
+  var btn = event.target; btn.disabled = true; btn.textContent = '処理中...';
+  fetch(API + '/api/membership/' + friendId + '/portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); }).then(function(d) { if (d.success && d.data.url) window.location.href = d.data.url; else { alert(d.error || 'エラー'); btn.disabled = false; btn.textContent = 'お支払い方法を変更する'; } });
+}
+function doAction(path, btn, label, msg) {
+  if (msg && !confirm(msg)) return;
+  btn.disabled = true; btn.textContent = '処理中...';
+  fetch(API + '/api/membership/' + friendId + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); }).then(function(d) { if (d.success) location.reload(); else { alert(d.error || 'エラー'); btn.disabled = false; btn.textContent = label; } });
+}
+function undoCancel() {
+  var btn = event.target; btn.disabled = true; btn.textContent = '処理中...';
+  fetch(API + '/api/membership/' + friendId + '/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ undo: true }) })
+    .then(function(r) { return r.json(); }).then(function(d) { if (d.success) location.reload(); else { alert(d.error || 'エラー'); btn.disabled = false; btn.textContent = '退会をキャンセルする'; } });
+}
 </script></body></html>`);
 });
 
