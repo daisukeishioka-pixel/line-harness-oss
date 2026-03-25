@@ -145,16 +145,13 @@ stripe.post('/api/checkout', async (c) => {
         .run();
     }
 
-    // Checkout Session作成（カード＋口座振替対応）
-    const session = (await stripeRequest(stripeKey, 'POST', '/checkout/sessions', {
+    // Checkout Session作成
+    // まずカード＋口座振替で試行、失敗した場合はカードのみにフォールバック
+    const checkoutParams: Record<string, string> = {
       'customer': customerId,
       'mode': 'subscription',
       'line_items[0][price]': PRICE_ID,
       'line_items[0][quantity]': '1',
-      'payment_method_types[0]': 'card',
-      'payment_method_types[1]': 'customer_balance',
-      'payment_method_options[customer_balance][funding_type]': 'bank_transfer',
-      'payment_method_options[customer_balance][bank_transfer][type]': 'jp_bank_transfer',
       'success_url': `${workersUrl}/api/membership/${friend.id}?status=success`,
       'cancel_url': `${workersUrl}/api/membership/${friend.id}?status=cancelled`,
       'client_reference_id': friend.id,
@@ -162,15 +159,34 @@ stripe.post('/api/checkout', async (c) => {
       'metadata[line_user_id]': friend.line_user_id,
       'subscription_data[metadata][line_friend_id]': friend.id,
       'subscription_data[metadata][line_user_id]': friend.line_user_id,
-    })) as { id: string; url: string };
+    };
+
+    let session: { id: string; url: string };
+    try {
+      // カード＋口座振替
+      session = (await stripeRequest(stripeKey, 'POST', '/checkout/sessions', {
+        ...checkoutParams,
+        'payment_method_types[0]': 'card',
+        'payment_method_types[1]': 'customer_balance',
+        'payment_method_options[customer_balance][funding_type]': 'bank_transfer',
+        'payment_method_options[customer_balance][bank_transfer][type]': 'jp_bank_transfer',
+      })) as { id: string; url: string };
+    } catch {
+      // 口座振替非対応の場合、カードのみ
+      session = (await stripeRequest(stripeKey, 'POST', '/checkout/sessions', {
+        ...checkoutParams,
+        'payment_method_types[0]': 'card',
+      })) as { id: string; url: string };
+    }
 
     return c.json({
       success: true,
       data: { sessionId: session.id, url: session.url },
     });
   } catch (err) {
-    console.error('POST /api/checkout error:', err);
-    return c.json({ success: false, error: 'Internal server error' }, 500);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error('POST /api/checkout error:', errMsg);
+    return c.json({ success: false, error: errMsg || 'Internal server error' }, 500);
   }
 });
 
