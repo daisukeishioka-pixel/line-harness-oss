@@ -189,4 +189,50 @@ memberPages.get('/api/membership/:friendId/news', async (c) => {
   }
 });
 
+// ========== 管理画面用: 会員詳細（目標＋アクティビティ） ==========
+
+memberPages.get('/api/payments/members/:friendId/detail', async (c) => {
+  try {
+    const friendId = c.req.param('friendId');
+    const db = c.env.DB;
+
+    // 目標
+    const goal = await db.prepare(
+      `SELECT goal_text FROM member_goals WHERE friend_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1`,
+    ).bind(friendId).first<{ goal_text: string }>();
+
+    // 直近30日のアクティビティ
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const activities = await db.prepare(
+      `SELECT activity_type, content_id, note, activity_date FROM member_activities WHERE friend_id = ? AND activity_date >= ? ORDER BY activity_date DESC`,
+    ).bind(friendId, thirtyDaysAgo).all<{
+      activity_type: string; content_id: string | null; note: string | null; activity_date: string;
+    }>();
+
+    // アクティビティ日数（ユニーク日数）
+    const uniqueDays = new Set(activities.results.map(a => a.activity_date.slice(0, 10)));
+    const videoCount = activities.results.filter(a => a.activity_type === 'video_watch').length;
+    const manualCount = activities.results.filter(a => a.activity_type === 'manual').length;
+
+    return c.json({
+      success: true,
+      data: {
+        goal: goal?.goal_text ?? null,
+        activeDays: uniqueDays.size,
+        videoCount,
+        manualCount,
+        activities: activities.results.map(a => ({
+          activityType: a.activity_type,
+          contentId: a.content_id,
+          note: a.note,
+          activityDate: a.activity_date,
+        })),
+      },
+    });
+  } catch (err) {
+    console.error('GET member detail error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 export { memberPages };

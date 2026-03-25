@@ -606,6 +606,7 @@ liffRoutes.get('/liff/home', (c) => {
 </div>
 ${bottomNavHTML('home', w)}
 <div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+<div class="memo-modal" id="newsModal"><div class="memo-box" style="max-width:360px;max-height:80vh;overflow-y:auto"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="news-badge" id="newsModalBadge"></span><button onclick="closeNewsModal()" style="background:none;border:none;font-size:20px;color:var(--text-sub);cursor:pointer">&times;</button></div><h3 id="newsModalTitle" style="font-size:16px;font-weight:700;margin-bottom:8px"></h3><p id="newsModalDate" style="font-size:11px;color:var(--text-sub);margin-bottom:12px"></p><div id="newsModalBody" style="font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap"></div></div></div>
 <script>
 ${liffInitScript(liffId, w)}
 var calYear, calMonth, activities = [], memoDate = '';
@@ -682,22 +683,25 @@ function loadActivities() {
 
 function renderGoal(goal) {
   var el = document.getElementById('goalArea');
-  if (goal) {
-    el.innerHTML = '<div class="goal-display">&#x1f3af; ' + esc(goal.goal_text) + '</div><button style="margin-top:6px;font-size:11px;color:var(--text-sub);background:none;border:none;cursor:pointer" onclick="editGoal()">目標を変更</button>';
+  var text = goal ? (goal.goal_text || goal.goalText || '') : '';
+  if (text) {
+    el.innerHTML = '<div class="goal-display">&#x1f3af; ' + esc(text) + '</div><button style="margin-top:6px;font-size:11px;color:var(--text-sub);background:none;border:none;cursor:pointer" onclick="editGoal()">目標を変更</button>';
   } else {
     el.innerHTML = '<input class="goal-input" id="goalInput" placeholder="今日の目標を設定（例: 毎日5分ストレッチ）"><button class="btn-sm btn-green" style="margin-top:6px" onclick="saveGoal()">設定</button>';
   }
 }
 function editGoal() {
   document.getElementById('goalArea').innerHTML = '<input class="goal-input" id="goalInput" placeholder="新しい目標"><button class="btn-sm btn-green" style="margin-top:6px" onclick="saveGoal()">保存</button>';
+  document.getElementById('goalInput').focus();
 }
 function saveGoal() {
   var text = document.getElementById('goalInput').value.trim();
   if (!text || !friendId) return;
+  var btn = event.target; btn.disabled = true; btn.textContent = '保存中...';
   fetch(API + '/api/membership/' + friendId + '/goals', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ goalText: text }),
-  }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) renderGoal(d.data); });
+  }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) renderGoal(d.data); else { btn.disabled = false; btn.textContent = '保存'; } }).catch(function() { btn.disabled = false; btn.textContent = '保存'; });
 }
 
 function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
@@ -738,15 +742,30 @@ initLiff().then(function() {
   });
 
   // News
-  fetch(API + '/api/membership/' + friendId + '/news?limit=3').then(function(r) { return r.json(); }).then(function(res) {
+  var allNews = [];
+  var newsCats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
+  fetch(API + '/api/membership/' + friendId + '/news?limit=5').then(function(r) { return r.json(); }).then(function(res) {
     var el = document.getElementById('newsCard');
     if (!res.success || !res.data || !res.data.length) { el.innerHTML = '<p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">お知らせはありません</p>'; return; }
-    var cats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
+    allNews = res.data;
     var h = '<p class="section-title">&#x1f4e2; お知らせ</p>';
-    res.data.forEach(function(n) { var cat = cats[n.category] || cats.info; h += '<div class="news-item"><span class="news-badge" style="color:' + cat[0] + ';background:' + cat[2] + '">' + cat[0] + '</span><div class="news-title">' + esc(n.title) + '</div><div class="news-date">' + fmtDate(n.publishedAt) + '</div></div>'; });
+    res.data.forEach(function(n, i) { var cat = newsCats[n.category] || newsCats.info; h += '<div class="news-item" style="cursor:pointer" onclick="openNewsModal(' + i + ')"><span class="news-badge" style="color:' + cat[0] + ';background:' + cat[2] + '">' + cat[0] + '</span><div class="news-title">' + esc(n.title) + '</div><div class="news-date">' + fmtDate(n.publishedAt) + '</div></div>'; });
     el.innerHTML = h;
   });
 }).catch(function(e) { if (e !== 'login') console.error(e); });
+
+function openNewsModal(idx) {
+  var n = allNews[idx]; if (!n) return;
+  var cat = newsCats[n.category] || newsCats.info;
+  document.getElementById('newsModalBadge').textContent = cat[0];
+  document.getElementById('newsModalBadge').style.color = cat[0];
+  document.getElementById('newsModalBadge').style.background = cat[2];
+  document.getElementById('newsModalTitle').textContent = n.title;
+  document.getElementById('newsModalDate').textContent = fmtDate(n.publishedAt);
+  document.getElementById('newsModalBody').textContent = n.body;
+  document.getElementById('newsModal').classList.add('show');
+}
+function closeNewsModal() { document.getElementById('newsModal').classList.remove('show'); }
 </script></body></html>`);
 });
 

@@ -65,6 +65,14 @@ function formatEventType(type: string) {
   return map[type] || type
 }
 
+type MemberDetail = {
+  goal: string | null
+  activeDays: number
+  videoCount: number
+  manualCount: number
+  activities: { activityType: string; contentId: string | null; note: string | null; activityDate: string }[]
+}
+
 export default function PaymentsPage() {
   const [members, setMembers] = useState<SubscriptionMember[]>([])
   const [events, setEvents] = useState<StripeEvent[]>([])
@@ -73,6 +81,20 @@ export default function PaymentsPage() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'members' | 'events'>('members')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [detailMember, setDetailMember] = useState<SubscriptionMember | null>(null)
+  const [detail, setDetail] = useState<MemberDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const openDetail = async (m: SubscriptionMember) => {
+    setDetailMember(m)
+    setDetail(null)
+    setDetailLoading(true)
+    try {
+      const res = await fetchApi<{ success: boolean; data: MemberDetail }>(`/api/payments/members/${m.id}/detail`)
+      if (res.success) setDetail(res.data)
+    } catch { /* ignore */ }
+    finally { setDetailLoading(false) }
+  }
 
   // サブスク会員一覧を取得（friendsテーブルからサブスク情報あり）
   const loadMembers = useCallback(async () => {
@@ -227,6 +249,7 @@ export default function PaymentsPage() {
                       <th className="text-left px-4 py-3 font-medium text-gray-600">次回請求日</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Stripe ID</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">登録日</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -261,6 +284,9 @@ export default function PaymentsPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-600">{formatDate(m.createdAt)}</td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => openDetail(m)} className="text-xs text-green-600 hover:underline font-medium">詳細</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -310,6 +336,78 @@ export default function PaymentsPage() {
             </div>
           </div>
         )
+      )}
+      {/* 会員詳細モーダル */}
+      {detailMember && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDetailMember(null)}>
+          <div className="bg-white rounded-xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {detailMember.pictureUrl ? (
+                  <img src={detailMember.pictureUrl} alt="" className="w-10 h-10 rounded-full" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-500">
+                    {(detailMember.displayName || '?')[0]}
+                  </div>
+                )}
+                <div>
+                  <p className="font-semibold text-gray-900">{detailMember.displayName || '名前なし'}</p>
+                  <StatusBadge status={detailMember.subscriptionStatus} />
+                </div>
+              </div>
+              <button onClick={() => setDetailMember(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+
+            {detailLoading ? (
+              <div className="text-center py-8 text-gray-500 text-sm">読み込み中...</div>
+            ) : detail ? (
+              <div className="space-y-4">
+                {/* 目標 */}
+                <div className="bg-green-50 rounded-lg p-3">
+                  <p className="text-xs font-medium text-green-700 mb-1">現在の目標</p>
+                  <p className="text-sm font-semibold text-green-800">{detail.goal || '未設定'}</p>
+                </div>
+
+                {/* アクティビティサマリー */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">直近30日のアクティビティ</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <p className="text-lg font-bold text-gray-900">{detail.activeDays}</p>
+                      <p className="text-xs text-gray-500">稼働日数</p>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3 text-center">
+                      <p className="text-lg font-bold text-red-600">{detail.videoCount}</p>
+                      <p className="text-xs text-gray-500">動画視聴</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 text-center">
+                      <p className="text-lg font-bold text-green-600">{detail.manualCount}</p>
+                      <p className="text-xs text-gray-500">手動記録</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* アクティビティ履歴 */}
+                {detail.activities.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-600 mb-2">アクティビティ履歴</p>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {detail.activities.map((a, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs py-1 border-b border-gray-100">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${a.activityType === 'video_watch' ? 'bg-red-500' : 'bg-green-500'}`} />
+                          <span className="text-gray-500 w-20 flex-shrink-0">{a.activityDate.slice(5)}</span>
+                          <span className="text-gray-700">{a.note || (a.activityType === 'video_watch' ? '動画視聴' : 'エクササイズ')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500 text-sm">データがありません</div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
