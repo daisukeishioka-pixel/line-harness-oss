@@ -669,7 +669,7 @@ function saveMemo() {
   fetch(API + '/api/membership/' + friendId + '/activities', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activityType: 'manual', activityDate: memoDate, note: note }),
-  }).then(function() { closeMemo(); loadActivities(); }).catch(function() { btn.disabled = false; btn.textContent = '記録する'; });
+  }).then(function() { btn.disabled = false; btn.textContent = '記録する'; closeMemo(); loadActivities(); }).catch(function() { btn.disabled = false; btn.textContent = '記録する'; alert('記録に失敗しました'); });
 }
 
 function loadActivities() {
@@ -705,8 +705,12 @@ function closeVideo() { document.getElementById('videoFrame').src = ''; document
 
 // Init
 initLiff().then(function() {
-  loadActivities();
+  // カレンダー: まず空で描画してからデータ取得
+  var now = new Date();
+  calYear = now.getFullYear();
+  calMonth = now.getMonth();
   renderCalendar();
+  loadActivities();
 
   // Goal
   fetch(API + '/api/membership/' + friendId + '/goals').then(function(r) { return r.json(); }).then(function(d) { renderGoal(d.success ? d.data : null); });
