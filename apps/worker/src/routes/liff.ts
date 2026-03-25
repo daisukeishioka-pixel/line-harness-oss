@@ -14,6 +14,88 @@ import type { Env } from '../index.js';
 
 const liffRoutes = new Hono<Env>();
 
+const DEFAULT_LIFF_ID = '2009595752-X90IWgrz';
+
+// ─── LIFF マイページ エントリーポイント ──────────────────────────
+
+/**
+ * GET /liff — LIFF SDK を読み込み、プロフィール取得後にマイページへ遷移
+ */
+liffRoutes.get('/liff', (c) => {
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const workersUrl = new URL(c.req.url).origin;
+
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>整体卒業サロン</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif; background: #f7f7f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .loader { text-align: center; }
+    .spinner { width: 40px; height: 40px; border: 3px solid #e0e0e0; border-top-color: #1a6b5a; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader p { font-size: 14px; color: #888; }
+    .error { color: #e53e3e; font-size: 14px; text-align: center; padding: 24px; }
+    .error button { margin-top: 12px; padding: 10px 24px; background: #1a6b5a; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="loader" id="loader">
+    <div class="spinner"></div>
+    <p>読み込み中...</p>
+  </div>
+  <div class="error" id="error" style="display:none">
+    <p id="errorMsg">エラーが発生しました</p>
+    <button onclick="location.reload()">再試行</button>
+  </div>
+  <script>
+    var LIFF_ID = '${escapeHtml(liffId)}';
+    var API_BASE = '${escapeHtml(workersUrl)}';
+
+    function showError(msg) {
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('error').style.display = 'block';
+      document.getElementById('errorMsg').textContent = msg || 'エラーが発生しました';
+    }
+
+    liff.init({ liffId: LIFF_ID })
+      .then(function() {
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+        return liff.getProfile();
+      })
+      .then(function(profile) {
+        if (!profile) return;
+        // LINE userId からfriendIdを取得してマイページへリダイレクト
+        return fetch(API_BASE + '/api/liff/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineUserId: profile.userId }),
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.success && data.data && data.data.id) {
+            window.location.replace(API_BASE + '/api/membership/' + data.data.id);
+          } else {
+            showError('ユーザー情報が見つかりません。LINEで友だち追加してからお試しください。');
+          }
+        });
+      })
+      .catch(function(err) {
+        console.error('LIFF error:', err);
+        showError('LINEログインに失敗しました: ' + (err.message || err));
+      });
+  </script>
+</body>
+</html>`);
+});
+
 // ─── LINE Login OAuth (bot_prompt=aggressive) ───────────────────
 
 /**
