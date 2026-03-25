@@ -596,6 +596,32 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
           friendId,
           eventData: { type: 'subscription_started', subscriptionId, stripeEventId: body.id },
         });
+
+        // LINE通知: 契約完了
+        const friendForNotify = await db
+          .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
+          .bind(friendId)
+          .first<{ line_user_id: string }>();
+        if (friendForNotify) {
+          await sendLineNotification(
+            c.env,
+            friendForNotify.line_user_id,
+            `整体卒業サロンへようこそ！🎉\n\nメンバーシップの登録が完了しました。\n月額 2,980円（税込）で毎月自動更新されます。\n\nマイページからコンテンツやLive配信スケジュールをご確認いただけます。`,
+          );
+        }
+      } else if (subscriptionStatus === 'incomplete') {
+        // LINE通知: 口座振替 入金待ち
+        const friendForNotify = await db
+          .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
+          .bind(friendId)
+          .first<{ line_user_id: string }>();
+        if (friendForNotify) {
+          await sendLineNotification(
+            c.env,
+            friendForNotify.line_user_id,
+            `整体卒業サロンのお申し込みありがとうございます。\n\n口座振替でのお支払いをお待ちしております。入金が確認でき次第、メンバーシップが有効になります。`,
+          );
+        }
       }
     }
 
@@ -699,6 +725,19 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         friendId,
         eventData: { type: 'subscription_cancelled', stripeEventId: body.id },
       });
+
+      // LINE通知: サブスクリプション終了
+      const friendForNotify = await db
+        .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
+        .bind(friendId)
+        .first<{ line_user_id: string }>();
+      if (friendForNotify) {
+        await sendLineNotification(
+          c.env,
+          friendForNotify.line_user_id,
+          `整体卒業サロンのメンバーシップが終了しました。\n\nご利用いただきありがとうございました。再度ご登録いただく場合は、マイページからお手続きいただけます。`,
+        );
+      }
     }
 
     // ========== invoice.payment_failed ==========
