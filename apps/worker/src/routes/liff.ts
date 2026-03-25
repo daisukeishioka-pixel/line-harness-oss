@@ -314,7 +314,7 @@ liffRoutes.get('/liff/signup', (c) => {
 
         <div class="checkbox-group" style="margin-bottom:12px">
           <input type="checkbox" id="fTerms">
-          <label for="fTerms"><a href="/legal" target="_blank">利用規約</a>および<a href="/privacy" target="_blank">プライバシーポリシー</a>に同意します</label>
+          <label for="fTerms"><a href="https://seitai-graduation-salon.vercel.app/terms" target="_blank">利用規約</a>および<a href="https://seitai-graduation-salon.vercel.app/privacy" target="_blank">プライバシーポリシー</a>に同意します</label>
         </div>
         <p class="error-msg" id="errTerms">利用規約への同意が必要です</p>
 
