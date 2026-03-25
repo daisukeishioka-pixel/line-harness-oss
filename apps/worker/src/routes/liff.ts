@@ -96,6 +96,388 @@ liffRoutes.get('/liff', (c) => {
 </html>`);
 });
 
+// ─── 入会フロー (/liff/signup) ───────────────────────────────────
+// フォーム入力（顧客情報 + 利用規約同意）→ Stripe Checkout → 入会完了
+// 回答済みの場合は自動でCheckoutにスキップ
+
+liffRoutes.get('/liff/signup', (c) => {
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const workersUrl = new URL(c.req.url).origin;
+
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>整体卒業サロン - 入会手続き</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root { --green: #1a6b5a; --green-light: #e8f5f0; --bg: #f7f7f5; --card: #fff; --text: #333; --text-sub: #888; --border: #e0e0e0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .header { background: var(--green); color: #fff; padding: 20px 16px; text-align: center; }
+    .header h1 { font-size: 18px; font-weight: 700; }
+    .header p { font-size: 12px; opacity: 0.8; margin-top: 4px; }
+    .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+    .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 16px; }
+    .step-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; color: var(--green); background: var(--green-light); margin-bottom: 12px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .form-label .required { color: #e53e3e; font-size: 11px; margin-left: 4px; }
+    .form-input, .form-select, .form-textarea { width: 100%; padding: 11px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: inherit; outline: none; transition: border-color 0.2s; -webkit-appearance: none; }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--green); }
+    .form-textarea { resize: vertical; min-height: 80px; }
+    .form-select { background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 12px center; }
+    .checkbox-group { display: flex; align-items: flex-start; gap: 10px; padding: 14px; background: #f9fafb; border-radius: 8px; border: 1.5px solid var(--border); }
+    .checkbox-group input[type="checkbox"] { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; accent-color: var(--green); }
+    .checkbox-group label { font-size: 13px; line-height: 1.5; color: var(--text-sub); }
+    .checkbox-group a { color: var(--green); text-decoration: underline; }
+    .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; transition: opacity 0.15s; font-family: inherit; }
+    .btn:active { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-green { background: var(--green); color: #fff; }
+    .error-msg { color: #e53e3e; font-size: 12px; margin-top: 4px; display: none; }
+    .loader { text-align: center; padding: 60px 20px; }
+    .spinner { width: 36px; height: 36px; border: 3px solid #e0e0e0; border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader p { font-size: 13px; color: var(--text-sub); }
+    .skip-msg { text-align: center; padding: 40px 20px; }
+    .skip-msg p { font-size: 14px; color: var(--text-sub); margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>整体卒業サロン</h1>
+    <p>入会手続き</p>
+  </div>
+
+  <div class="container">
+    <!-- ローディング -->
+    <div id="loading" class="loader">
+      <div class="spinner"></div>
+      <p>読み込み中...</p>
+    </div>
+
+    <!-- 回答済み → Checkoutへスキップ -->
+    <div id="skipView" style="display:none" class="skip-msg">
+      <div class="card">
+        <p>登録情報を確認しました。<br>決済画面に移動します...</p>
+        <div class="spinner" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- フォーム -->
+    <div id="formView" style="display:none">
+      <div class="card">
+        <span class="step-badge">STEP 1 / 2</span>
+        <p style="font-size:14px;font-weight:600;margin-bottom:16px">お客様情報の入力</p>
+
+        <div class="form-group">
+          <label class="form-label">お名前 <span class="required">*必須</span></label>
+          <input class="form-input" id="fName" type="text" placeholder="山田 太郎" autocomplete="name">
+          <p class="error-msg" id="errName">お名前を入力してください</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">メールアドレス <span class="required">*必須</span></label>
+          <input class="form-input" id="fEmail" type="email" placeholder="example@email.com" autocomplete="email">
+          <p class="error-msg" id="errEmail">正しいメールアドレスを入力してください</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">電話番号</label>
+          <input class="form-input" id="fPhone" type="tel" placeholder="090-1234-5678" autocomplete="tel">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">お体のお悩み</label>
+          <select class="form-select" id="fConcern">
+            <option value="">選択してください</option>
+            <option value="neck_shoulder">首・肩のこり</option>
+            <option value="back">背中の痛み・猫背</option>
+            <option value="waist">腰痛</option>
+            <option value="pelvis">骨盤の歪み</option>
+            <option value="whole_body">全身のだるさ・疲労</option>
+            <option value="other">その他</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">サロンへの期待・ご質問（任意）</label>
+          <textarea class="form-textarea" id="fMessage" placeholder="気になることがあればお書きください"></textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="step-badge">STEP 2 / 2</span>
+        <p style="font-size:14px;font-weight:600;margin-bottom:16px">利用規約への同意</p>
+
+        <div class="checkbox-group" style="margin-bottom:12px">
+          <input type="checkbox" id="fTerms">
+          <label for="fTerms"><a href="/legal" target="_blank">利用規約</a>および<a href="/privacy" target="_blank">プライバシーポリシー</a>に同意します</label>
+        </div>
+        <p class="error-msg" id="errTerms">利用規約への同意が必要です</p>
+
+        <button class="btn btn-green" id="submitBtn" onclick="handleSubmit()" style="margin-top:16px">
+          決済画面へ進む
+        </button>
+      </div>
+    </div>
+
+    <!-- エラー -->
+    <div id="errorView" style="display:none">
+      <div class="card" style="text-align:center">
+        <p id="errorMsg" style="color:#e53e3e;font-size:14px;margin-bottom:16px">エラーが発生しました</p>
+        <button class="btn btn-green" onclick="location.reload()">再試行</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var LIFF_ID = '${escapeHtml(liffId)}';
+    var API = '${escapeHtml(workersUrl)}';
+    var friendId = null;
+    var lineUserId = null;
+
+    function showView(id) {
+      ['loading','formView','skipView','errorView'].forEach(function(v) {
+        document.getElementById(v).style.display = v === id ? '' : 'none';
+      });
+    }
+
+    function showError(msg) {
+      document.getElementById('errorMsg').textContent = msg || 'エラーが発生しました';
+      showView('errorView');
+    }
+
+    // LIFF初期化 → プロフィール取得 → 回答済みチェック
+    liff.init({ liffId: LIFF_ID })
+      .then(function() {
+        if (!liff.isLoggedIn()) { liff.login(); return; }
+        return liff.getProfile();
+      })
+      .then(function(profile) {
+        if (!profile) return;
+        lineUserId = profile.userId;
+
+        // friendIdを取得
+        return fetch(API + '/api/liff/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineUserId: profile.userId }),
+        }).then(function(r) { return r.json(); });
+      })
+      .then(function(data) {
+        if (!data || !data.success || !data.data) {
+          showError('ユーザー情報が見つかりません。LINEで友だち追加してからお試しください。');
+          return;
+        }
+        friendId = data.data.id;
+
+        // 回答済みかチェック（metadataにsignup_completedがあるか）
+        return fetch(API + '/api/liff/signup-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ friendId: friendId }),
+        }).then(function(r) { return r.json(); });
+      })
+      .then(function(check) {
+        if (!check) return;
+        if (check.data && check.data.alreadySignedUp) {
+          // 回答済み → 既に有料会員か確認
+          if (check.data.isActive) {
+            // 既に会員 → マイページへ
+            window.location.replace(API + '/api/membership/' + friendId);
+            return;
+          }
+          // 回答済みだが未決済 → Checkoutへスキップ
+          showView('skipView');
+          startCheckout();
+        } else {
+          // 未回答 → フォーム表示
+          if (check.data && check.data.displayName) {
+            document.getElementById('fName').value = check.data.displayName;
+          }
+          showView('formView');
+        }
+      })
+      .catch(function(err) {
+        console.error('Init error:', err);
+        showError('LINEログインに失敗しました: ' + (err.message || err));
+      });
+
+    function handleSubmit() {
+      // バリデーション
+      var name = document.getElementById('fName').value.trim();
+      var email = document.getElementById('fEmail').value.trim();
+      var terms = document.getElementById('fTerms').checked;
+      var valid = true;
+
+      document.getElementById('errName').style.display = name ? 'none' : 'block';
+      if (!name) valid = false;
+
+      var emailOk = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+      document.getElementById('errEmail').style.display = emailOk ? 'none' : 'block';
+      if (!emailOk) valid = false;
+
+      document.getElementById('errTerms').style.display = terms ? 'none' : 'block';
+      if (!terms) valid = false;
+
+      if (!valid) return;
+
+      var btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = '送信中...';
+
+      // フォームデータ送信
+      fetch(API + '/api/liff/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          friendId: friendId,
+          name: name,
+          email: email,
+          phone: document.getElementById('fPhone').value.trim(),
+          concern: document.getElementById('fConcern').value,
+          message: document.getElementById('fMessage').value.trim(),
+          termsAgreedAt: new Date().toISOString(),
+        }),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          startCheckout();
+        } else {
+          btn.disabled = false;
+          btn.textContent = '決済画面へ進む';
+          alert(d.error || 'エラーが発生しました');
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.textContent = '決済画面へ進む';
+        alert('通信エラーが発生しました');
+      });
+    }
+
+    function startCheckout() {
+      fetch(API + '/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: friendId }),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success && d.data.url) {
+          window.location.href = d.data.url;
+        } else {
+          showError(d.error || '決済セッションの作成に失敗しました');
+        }
+      })
+      .catch(function() {
+        showError('通信エラーが発生しました');
+      });
+    }
+  </script>
+</body>
+</html>`);
+});
+
+// ─── 入会チェックAPI ─────────────────────────────────────────────
+
+liffRoutes.post('/api/liff/signup-check', async (c) => {
+  try {
+    const { friendId } = await c.req.json<{ friendId: string }>();
+    const db = c.env.DB;
+
+    const friend = await db
+      .prepare(`SELECT display_name, metadata, subscription_status FROM friends WHERE id = ?`)
+      .bind(friendId)
+      .first<{ display_name: string | null; metadata: string | null; subscription_status: string | null }>();
+
+    if (!friend) {
+      return c.json({ success: true, data: { alreadySignedUp: false } });
+    }
+
+    const meta = friend.metadata ? JSON.parse(friend.metadata) : {};
+    const isActive = friend.subscription_status === 'active' || friend.subscription_status === 'trialing';
+
+    return c.json({
+      success: true,
+      data: {
+        alreadySignedUp: !!meta.signup_completed,
+        isActive,
+        displayName: friend.display_name,
+      },
+    });
+  } catch (err) {
+    console.error('POST /api/liff/signup-check error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+// ─── 入会フォームデータ保存API ───────────────────────────────────
+
+liffRoutes.post('/api/liff/signup', async (c) => {
+  try {
+    const body = await c.req.json<{
+      friendId: string;
+      name: string;
+      email: string;
+      phone?: string;
+      concern?: string;
+      message?: string;
+      termsAgreedAt: string;
+    }>();
+    const db = c.env.DB;
+
+    // 既存metadataを取得してマージ
+    const friend = await db
+      .prepare(`SELECT metadata FROM friends WHERE id = ?`)
+      .bind(body.friendId)
+      .first<{ metadata: string | null }>();
+
+    const existingMeta = friend?.metadata ? JSON.parse(friend.metadata) : {};
+    const updatedMeta = {
+      ...existingMeta,
+      signup_completed: true,
+      signup_name: body.name,
+      signup_email: body.email,
+      signup_phone: body.phone || null,
+      signup_concern: body.concern || null,
+      signup_message: body.message || null,
+      terms_agreed_at: body.termsAgreedAt,
+    };
+
+    // friends テーブルを更新（display_name, metadata）
+    const now = jstNow();
+    await db
+      .prepare(
+        `UPDATE friends SET display_name = ?, metadata = ?, updated_at = ? WHERE id = ?`,
+      )
+      .bind(body.name, JSON.stringify(updatedMeta), now, body.friendId)
+      .run();
+
+    // users テーブルのemailも更新（存在する場合）
+    const friendRow = await db
+      .prepare(`SELECT user_id FROM friends WHERE id = ?`)
+      .bind(body.friendId)
+      .first<{ user_id: string | null }>();
+
+    if (friendRow?.user_id && body.email) {
+      await db
+        .prepare(`UPDATE users SET email = ?, phone = ?, updated_at = ? WHERE id = ?`)
+        .bind(body.email, body.phone || null, now, friendRow.user_id)
+        .run();
+    }
+
+    return c.json({ success: true, data: { saved: true } });
+  } catch (err) {
+    console.error('POST /api/liff/signup error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 // ─── Short Link Landing Page (/r/:ref) ──────────────────────────
 // X（Twitter）等のアプリ内ブラウザからLIFFを直接開けないため、
 // このページを中継してLINEアプリで開く。SNS集客用。
