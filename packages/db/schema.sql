@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS line_accounts (
   name                 TEXT NOT NULL,
   channel_access_token TEXT NOT NULL,
   channel_secret       TEXT NOT NULL,
+  token_expires_at     TEXT,
   is_active            INTEGER NOT NULL DEFAULT 1,
   created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))

@@ -16,6 +16,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path.startsWith('/webhook') ||
     path.startsWith('/liff') ||
     path.startsWith('/t/') ||
+    path.startsWith('/r/') ||
     path.startsWith('/api/liff/') ||
     path.startsWith('/auth/') ||
     path.startsWith('/api/membership/') ||

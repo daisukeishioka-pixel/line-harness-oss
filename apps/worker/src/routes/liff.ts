@@ -96,6 +96,51 @@ liffRoutes.get('/liff', (c) => {
 </html>`);
 });
 
+// ─── Short Link Landing Page (/r/:ref) ──────────────────────────
+// X（Twitter）等のアプリ内ブラウザからLIFFを直接開けないため、
+// このページを中継してLINEアプリで開く。SNS集客用。
+
+liffRoutes.get('/r/:ref', (c) => {
+  const ref = c.req.param('ref');
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const liffUrl = `https://liff.line.me/${liffId}?ref=${encodeURIComponent(ref)}`;
+  const lineAddUrl = `https://line.me/R/ti/p/@${(c.env as unknown as Record<string, string | undefined>).LINE_CHANNEL_ID || ''}`;
+
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>整体卒業サロン</title>
+  <meta property="og:title" content="整体卒業サロン - 体の不調を自分で解消">
+  <meta property="og:description" content="セルフケア動画見放題・週1 Live配信・コミュニティ参加。月額2,980円">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif; background: linear-gradient(135deg, #e8f5f0 0%, #f7f7f5 100%); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 24px; }
+    .card { background: #fff; border-radius: 20px; padding: 32px 24px; max-width: 360px; width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+    .logo { width: 64px; height: 64px; background: #1a6b5a; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 28px; font-weight: 700; margin: 0 auto 16px; }
+    h1 { font-size: 20px; color: #333; margin-bottom: 8px; }
+    .desc { font-size: 13px; color: #888; line-height: 1.6; margin-bottom: 24px; }
+    .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; text-decoration: none; margin-bottom: 10px; transition: opacity 0.15s; }
+    .btn:active { opacity: 0.85; }
+    .btn-line { background: #06C755; color: #fff; }
+    .btn-web { background: #f0f0f0; color: #333; font-size: 14px; }
+    .note { font-size: 11px; color: #aaa; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">卒</div>
+    <h1>整体卒業サロン</h1>
+    <p class="desc">体の不調を自分で解消できるようになる<br>オンラインサロン</p>
+    <a class="btn btn-line" href="${escapeHtml(liffUrl)}">LINEで開く 💬</a>
+    <a class="btn btn-web" href="${escapeHtml(liffUrl)}">ブラウザで開く</a>
+    <p class="note">LINEアプリが開きます。<br>友だち追加がまだの方は自動で追加されます。</p>
+  </div>
+</body>
+</html>`);
+});
+
 // ─── LINE Login OAuth (bot_prompt=aggressive) ───────────────────
 
 /**
