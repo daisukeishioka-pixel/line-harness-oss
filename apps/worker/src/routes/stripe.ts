@@ -982,13 +982,13 @@ function renderMembershipPage(
     function mkCard(c, member) {
       var locked = !member;
       return '<div class="content-card' + (locked ? ' content-lock' : '') + '" onclick="' + (locked ? '' : "openVideo('" + esc(c.videoUrl || '').replace(/'/g,'') + "')") + '">' +
-        '<img class="content-thumb" src="' + esc(c.thumbnailUrl || '') + '" alt="" onerror="this.style.background=\'#e0e0e0\'">' +
+        '<img class="content-thumb" src="' + esc(c.thumbnailUrl || '') + '" alt="" onerror="this.style.background=&quot;#e0e0e0&quot;">' +
         '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div>' +
         '<div class="content-meta">' + (CAT_LABELS[c.category]||c.category) + (c.duration ? ' ・ ' + fmtDuration(c.duration) : '') + '</div></div></div>';
     }
 
     function renderPills() {
-      var h = ''; CATS.forEach(function(c) { h += '<button class="pill' + (c.key === selectedCat ? ' active' : '') + '" onclick="filterCat(\\''+c.key+'\\')">' + c.label + '</button>'; });
+      var h = ''; CATS.forEach(function(c) { h += '<button class="pill' + (c.key === selectedCat ? ' active' : '') + "\" onclick=\"filterCat('" + c.key + "')\">" + c.label + '</button>'; });
       document.getElementById('categoryPills').innerHTML = h;
     }
     function filterCat(cat) { selectedCat = cat; renderPills(); renderCL(); }
