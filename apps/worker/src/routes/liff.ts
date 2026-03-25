@@ -707,6 +707,10 @@ function saveGoal() {
 function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
 function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
 
+// News data (グローバルスコープ - openNewsModalからアクセスするため)
+var allNews = [];
+var newsCats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
+
 // Init
 initLiff().then(function() {
   // カレンダー: まず空で描画してからデータ取得
@@ -742,8 +746,6 @@ initLiff().then(function() {
   });
 
   // News
-  var allNews = [];
-  var newsCats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
   fetch(API + '/api/membership/' + friendId + '/news?limit=5').then(function(r) { return r.json(); }).then(function(res) {
     var el = document.getElementById('newsCard');
     if (!res.success || !res.data || !res.data.length) { el.innerHTML = '<p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">お知らせはありません</p>'; return; }
