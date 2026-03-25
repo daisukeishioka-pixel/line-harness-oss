@@ -12,7 +12,6 @@ import type { Env } from '../index.js';
 
 const stripe = new Hono<Env>();
 
-const WORKERS_URL = 'https://line-crm-worker.seitai-graduation.workers.dev';
 const PRICE_ID = 'price_1TEYQIB4Z2tRuVncR93UXX1p';
 
 interface StripeWebhookBody {
@@ -111,6 +110,7 @@ async function sendLineNotification(env: Env['Bindings'], lineUserId: string, te
 stripe.post('/api/checkout', async (c) => {
   try {
     const { friendId, lineUserId } = await c.req.json<{ friendId?: string; lineUserId?: string }>();
+    const workersUrl = new URL(c.req.url).origin;
     const stripeKey = (c.env as unknown as Record<string, string | undefined>).STRIPE_SECRET_KEY;
     if (!stripeKey) {
       return c.json({ success: false, error: 'Stripe is not configured' }, 500);
@@ -155,8 +155,8 @@ stripe.post('/api/checkout', async (c) => {
       'payment_method_types[1]': 'customer_balance',
       'payment_method_options[customer_balance][funding_type]': 'bank_transfer',
       'payment_method_options[customer_balance][bank_transfer][type]': 'jp_bank_transfer',
-      'success_url': `${WORKERS_URL}/api/membership/${friend.id}?status=success`,
-      'cancel_url': `${WORKERS_URL}/api/membership/${friend.id}?status=cancelled`,
+      'success_url': `${workersUrl}/api/membership/${friend.id}?status=success`,
+      'cancel_url': `${workersUrl}/api/membership/${friend.id}?status=cancelled`,
       'client_reference_id': friend.id,
       'metadata[line_friend_id]': friend.id,
       'metadata[line_user_id]': friend.line_user_id,
@@ -202,7 +202,9 @@ stripe.get('/api/membership/:friendId', async (c) => {
     // ブラウザからのアクセス（リダイレクト後）の場合はHTMLを返す
     const accept = c.req.header('Accept') ?? '';
     if (accept.includes('text/html') || status) {
-      return c.html(renderMembershipPage(friend, status ?? undefined));
+      const apiBase = new URL(c.req.url).origin;
+      const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID;
+      return c.html(renderMembershipPage(friend, status ?? undefined, apiBase, liffId ?? undefined));
     }
 
     // API呼び出しの場合はJSONを返す
@@ -228,6 +230,7 @@ stripe.get('/api/membership/:friendId', async (c) => {
 stripe.post('/api/membership/:friendId/portal', async (c) => {
   try {
     const friendId = c.req.param('friendId');
+    const workersUrl = new URL(c.req.url).origin;
     const stripeKey = (c.env as unknown as Record<string, string | undefined>).STRIPE_SECRET_KEY;
     if (!stripeKey) {
       return c.json({ success: false, error: 'Stripe is not configured' }, 500);
@@ -244,7 +247,7 @@ stripe.post('/api/membership/:friendId/portal', async (c) => {
 
     const session = (await stripeRequest(stripeKey, 'POST', '/billing_portal/sessions', {
       customer: friend.stripe_customer_id,
-      return_url: `${WORKERS_URL}/api/membership/${friendId}`,
+      return_url: `${workersUrl}/api/membership/${friendId}`,
     })) as { url: string };
 
     return c.json({ success: true, data: { url: session.url } });
@@ -734,7 +737,7 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
 
 // ========== 会員マイページ HTML レンダリング ==========
 
-const LIFF_ID = '2009595752-X90IWgrz';
+const DEFAULT_LIFF_ID_MYPAGE = '2009595752-X90IWgrz';
 
 function renderMembershipPage(
   friend: {
@@ -747,6 +750,8 @@ function renderMembershipPage(
     stripe_customer_id: string | null;
   },
   flashStatus?: string,
+  apiBaseUrl?: string,
+  liffId?: string,
 ): string {
   const escName = (friend.display_name ?? 'メンバー').replace(/[<>&"']/g, (ch) => {
     const map: Record<string, string> = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' };
@@ -886,7 +891,7 @@ function renderMembershipPage(
 
   <script>
     var INIT = ${initData};
-    var API = '${WORKERS_URL}';
+    var API = '${(apiBaseUrl ?? '').replace(/'/g, "\\'")}';
     var FID = INIT.friendId;
 
     // Set profile from DB data immediately
@@ -894,7 +899,7 @@ function renderMembershipPage(
 
     // LIFF Init — override with fresh LINE profile if available
     try {
-      liff.init({ liffId: '${LIFF_ID}' }).then(function() {
+      liff.init({ liffId: '${(liffId ?? DEFAULT_LIFF_ID_MYPAGE).replace(/'/g, "\\'")}' }).then(function() {
         if (liff.isLoggedIn()) {
           liff.getProfile().then(function(p) {
             document.getElementById('profileName').textContent = p.displayName;
