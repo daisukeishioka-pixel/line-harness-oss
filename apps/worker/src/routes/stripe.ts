@@ -7,6 +7,7 @@ import {
   getFriendById,
   jstNow,
 } from '@line-crm/db';
+import { LineClient } from '@line-crm/line-sdk';
 import type { Env } from '../index.js';
 
 const stripe = new Hono<Env>();
@@ -31,6 +32,9 @@ interface StripeWebhookBody {
       payment_status?: string;
       client_reference_id?: string;
       current_period_end?: number;
+      cancel_at_period_end?: boolean;
+      cancel_at?: number | null;
+      pause_collection?: { behavior: string; resumes_at?: number } | null;
       lines?: { data: Array<{ price?: { id: string } }> };
     };
   };
@@ -53,6 +57,53 @@ async function stripeRequest(
     body: body ? new URLSearchParams(body).toString() : undefined,
   });
   return res.json();
+}
+
+/** DB + Stripeキー + フレンド情報を取得する共通ヘルパー */
+async function getMembershipContext(c: { env: Env['Bindings']; req: { param: (k: string) => string } }) {
+  const friendId = c.req.param('friendId');
+  const stripeKey = (c.env as unknown as Record<string, string | undefined>).STRIPE_SECRET_KEY;
+  const db = c.env.DB;
+  const friend = await db
+    .prepare(`SELECT id, line_user_id, display_name, subscription_id, subscription_status, current_period_end, stripe_customer_id FROM friends WHERE id = ?`)
+    .bind(friendId)
+    .first<{
+      id: string;
+      line_user_id: string;
+      display_name: string | null;
+      subscription_id: string | null;
+      subscription_status: string | null;
+      current_period_end: string | null;
+      stripe_customer_id: string | null;
+    }>();
+  return { friendId, stripeKey, db, friend };
+}
+
+/** タグを追加/削除するヘルパー */
+async function addTag(db: D1Database, friendId: string, tagName: string) {
+  const tag = await db.prepare(`SELECT id FROM tags WHERE name = ?`).bind(tagName).first<{ id: string }>();
+  if (tag) {
+    await db.prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`).bind(friendId, tag.id, jstNow()).run();
+  }
+}
+
+async function removeTag(db: D1Database, friendId: string, tagName: string) {
+  const tag = await db.prepare(`SELECT id FROM tags WHERE name = ?`).bind(tagName).first<{ id: string }>();
+  if (tag) {
+    await db.prepare(`DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = ?`).bind(friendId, tag.id).run();
+  }
+}
+
+/** LINE通知送信ヘルパー */
+async function sendLineNotification(env: Env['Bindings'], lineUserId: string, text: string) {
+  const token = env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return;
+  try {
+    const client = new LineClient(token);
+    await client.pushTextMessage(lineUserId, text);
+  } catch (err) {
+    console.error('LINE notification failed:', err);
+  }
 }
 
 // ========== Checkoutセッション作成 ==========
@@ -198,6 +249,161 @@ stripe.post('/api/membership/:friendId/portal', async (c) => {
     return c.json({ success: true, data: { url: session.url } });
   } catch (err) {
     console.error('POST /api/membership/portal error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+// ========== 休会 ==========
+
+stripe.post('/api/membership/:friendId/pause', async (c) => {
+  try {
+    const { friendId, stripeKey, db, friend } = await getMembershipContext(c);
+    if (!stripeKey) return c.json({ success: false, error: 'Stripe is not configured' }, 500);
+    if (!friend?.subscription_id) return c.json({ success: false, error: 'No active subscription' }, 404);
+    if (friend.subscription_status !== 'active') {
+      return c.json({ success: false, error: 'Subscription is not active' }, 400);
+    }
+
+    const now = jstNow();
+
+    // 休会期間: 最大3ヶ月後に自動解除
+    const resumesAt = Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
+
+    // Stripeのpause_collectionを設定
+    await stripeRequest(stripeKey, 'POST', `/subscriptions/${friend.subscription_id}`, {
+      'pause_collection[behavior]': 'void',
+      'pause_collection[resumes_at]': String(resumesAt),
+    });
+
+    // D1ステータス更新
+    await db
+      .prepare(`UPDATE friends SET subscription_status = 'paused', updated_at = ? WHERE id = ?`)
+      .bind(now, friendId)
+      .run();
+
+    // タグ操作: salon_memberは維持、subscription_pausedを追加
+    await addTag(db, friendId, 'subscription_paused');
+
+    // LINE通知
+    await sendLineNotification(
+      c.env,
+      friend.line_user_id,
+      `整体卒業サロンの休会手続きが完了しました。\n\n休会期間中は課金が停止されます。最大3ヶ月間休会可能で、期間を超過すると自動的に再開されます。\n\nいつでもマイページから復帰できます。`,
+    );
+
+    return c.json({ success: true, data: { status: 'paused' } });
+  } catch (err) {
+    console.error('POST /api/membership/pause error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+// ========== 休会からの復帰 ==========
+
+stripe.post('/api/membership/:friendId/resume', async (c) => {
+  try {
+    const { friendId, stripeKey, db, friend } = await getMembershipContext(c);
+    if (!stripeKey) return c.json({ success: false, error: 'Stripe is not configured' }, 500);
+    if (!friend?.subscription_id) return c.json({ success: false, error: 'No subscription found' }, 404);
+    if (friend.subscription_status !== 'paused') {
+      return c.json({ success: false, error: 'Subscription is not paused' }, 400);
+    }
+
+    const now = jstNow();
+
+    // Stripeのpause_collectionを解除（空文字列で削除）
+    await stripeRequest(stripeKey, 'POST', `/subscriptions/${friend.subscription_id}`, {
+      'pause_collection': '',
+    });
+
+    // D1ステータス更新
+    await db
+      .prepare(`UPDATE friends SET subscription_status = 'active', updated_at = ? WHERE id = ?`)
+      .bind(now, friendId)
+      .run();
+
+    // タグ操作
+    await removeTag(db, friendId, 'subscription_paused');
+
+    // LINE通知
+    await sendLineNotification(
+      c.env,
+      friend.line_user_id,
+      `整体卒業サロンへの復帰が完了しました！\n\nメンバーシップが再開されました。引き続きコンテンツをお楽しみください。`,
+    );
+
+    return c.json({ success: true, data: { status: 'active' } });
+  } catch (err) {
+    console.error('POST /api/membership/resume error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+// ========== 退会（期間末キャンセル） ==========
+
+stripe.post('/api/membership/:friendId/cancel', async (c) => {
+  try {
+    const { friendId, stripeKey, db, friend } = await getMembershipContext(c);
+    if (!stripeKey) return c.json({ success: false, error: 'Stripe is not configured' }, 500);
+    if (!friend?.subscription_id) return c.json({ success: false, error: 'No subscription found' }, 404);
+
+    const status = friend.subscription_status;
+    if (status !== 'active' && status !== 'paused') {
+      return c.json({ success: false, error: 'Subscription cannot be cancelled' }, 400);
+    }
+
+    const now = jstNow();
+    const { undo } = await c.req.json<{ undo?: boolean }>().catch(() => ({ undo: false }));
+
+    if (undo) {
+      // 退会キャンセル（退会予定を取り消す）
+      await stripeRequest(stripeKey, 'POST', `/subscriptions/${friend.subscription_id}`, {
+        'cancel_at_period_end': 'false',
+      });
+
+      // ステータスを元に戻す（休会中だった場合はpausedに）
+      const restoredStatus = status === 'paused' ? 'paused' : 'active';
+      await db
+        .prepare(`UPDATE friends SET subscription_status = ?, updated_at = ? WHERE id = ?`)
+        .bind(restoredStatus, now, friendId)
+        .run();
+
+      await sendLineNotification(
+        c.env,
+        friend.line_user_id,
+        `退会のキャンセルが完了しました。\n\nメンバーシップは引き続きご利用いただけます。`,
+      );
+
+      return c.json({ success: true, data: { status: restoredStatus } });
+    }
+
+    // 期間末でキャンセル
+    const sub = (await stripeRequest(stripeKey, 'POST', `/subscriptions/${friend.subscription_id}`, {
+      'cancel_at_period_end': 'true',
+    })) as { current_period_end?: number };
+
+    // D1ステータスを退会予定に更新
+    await db
+      .prepare(`UPDATE friends SET subscription_status = 'cancel_scheduled', updated_at = ? WHERE id = ?`)
+      .bind(now, friendId)
+      .run();
+
+    // LINE通知（利用可能期限を明記）
+    const periodEndDate = sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
+      : friend.current_period_end
+        ? new Date(friend.current_period_end).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '現在の請求期間末';
+
+    await sendLineNotification(
+      c.env,
+      friend.line_user_id,
+      `整体卒業サロンの退会手続きを受け付けました。\n\n${periodEndDate}まで引き続きコンテンツをご利用いただけます。\n\n退会を取り消したい場合は、マイページから「退会をキャンセルする」ボタンを押してください。`,
+    );
+
+    return c.json({ success: true, data: { status: 'cancel_scheduled', periodEnd: periodEndDate } });
+  } catch (err) {
+    console.error('POST /api/membership/cancel error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -374,30 +580,30 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         ? new Date(obj.current_period_end * 1000).toISOString()
         : null;
 
-      // 現在のステータスを取得（incomplete → active への遷移を検知するため）
+      // 現在のステータスを取得（遷移検知のため）
       const currentFriend = await db
-        .prepare(`SELECT subscription_status FROM friends WHERE id = ?`)
+        .prepare(`SELECT subscription_status, line_user_id FROM friends WHERE id = ?`)
         .bind(friendId)
-        .first<{ subscription_status: string | null }>();
+        .first<{ subscription_status: string | null; line_user_id: string }>();
+
+      // D1ステータスを決定: pause_collection / cancel_at_period_end を考慮
+      let resolvedStatus = status ?? null;
+      if (obj.pause_collection) {
+        resolvedStatus = 'paused';
+      } else if (obj.cancel_at_period_end) {
+        resolvedStatus = 'cancel_scheduled';
+      }
 
       await db
         .prepare(
           `UPDATE friends SET subscription_status = ?, current_period_end = COALESCE(?, current_period_end), updated_at = ? WHERE id = ?`,
         )
-        .bind(status ?? null, periodEnd, now, friendId)
+        .bind(resolvedStatus, periodEnd, now, friendId)
         .run();
 
       // 口座振替の入金完了: incomplete → active に遷移した場合、タグ付け・スコアリングを実行
-      if (status === 'active' && currentFriend?.subscription_status === 'incomplete') {
-        const memberTag = await db
-          .prepare(`SELECT id FROM tags WHERE name = 'salon_member'`)
-          .first<{ id: string }>();
-        if (memberTag) {
-          await db
-            .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
-            .bind(friendId, memberTag.id, now)
-            .run();
-        }
+      if (status === 'active' && !obj.pause_collection && !obj.cancel_at_period_end && currentFriend?.subscription_status === 'incomplete') {
+        await addTag(db, friendId, 'salon_member');
 
         const { applyScoring } = await import('@line-crm/db');
         await applyScoring(db, friendId, 'purchase');
@@ -407,6 +613,42 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
           friendId,
           eventData: { type: 'subscription_started', stripeEventId: body.id },
         });
+      }
+    }
+
+    // ========== customer.subscription.paused ==========
+    if (body.type === 'customer.subscription.paused' && friendId) {
+      await db
+        .prepare(`UPDATE friends SET subscription_status = 'paused', updated_at = ? WHERE id = ?`)
+        .bind(now, friendId)
+        .run();
+
+      await addTag(db, friendId, 'subscription_paused');
+
+      const friend = await db
+        .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
+        .bind(friendId)
+        .first<{ line_user_id: string }>();
+      if (friend) {
+        await sendLineNotification(c.env, friend.line_user_id, `整体卒業サロンのメンバーシップが休会状態になりました。\n\nマイページからいつでも復帰できます。`);
+      }
+    }
+
+    // ========== customer.subscription.resumed ==========
+    if (body.type === 'customer.subscription.resumed' && friendId) {
+      await db
+        .prepare(`UPDATE friends SET subscription_status = 'active', updated_at = ? WHERE id = ?`)
+        .bind(now, friendId)
+        .run();
+
+      await removeTag(db, friendId, 'subscription_paused');
+
+      const friend = await db
+        .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
+        .bind(friendId)
+        .first<{ line_user_id: string }>();
+      if (friend) {
+        await sendLineNotification(c.env, friend.line_user_id, `整体卒業サロンのメンバーシップが再開されました！\n\n引き続きコンテンツをお楽しみください。`);
       }
     }
 
@@ -420,27 +662,10 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         .bind(now, friendId)
         .run();
 
-      // 解約タグ付け
-      const cancelledTag = await db
-        .prepare(`SELECT id FROM tags WHERE name = 'subscription_cancelled'`)
-        .first<{ id: string }>();
-      if (cancelledTag) {
-        await db
-          .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
-          .bind(friendId, cancelledTag.id, now)
-          .run();
-      }
-
-      // salon_memberタグを外す
-      const memberTag = await db
-        .prepare(`SELECT id FROM tags WHERE name = 'salon_member'`)
-        .first<{ id: string }>();
-      if (memberTag) {
-        await db
-          .prepare(`DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = ?`)
-          .bind(friendId, memberTag.id)
-          .run();
-      }
+      // タグ操作
+      await addTag(db, friendId, 'subscription_cancelled');
+      await removeTag(db, friendId, 'salon_member');
+      await removeTag(db, friendId, 'subscription_paused');
 
       // イベントバスに発火
       const { fireEvent } = await import('../services/event-bus.js');
@@ -520,18 +745,24 @@ function renderMembershipPage(
   flashStatus?: string,
 ): string {
   const isActive = friend.subscription_status === 'active' || friend.subscription_status === 'trialing';
+  const isPaused = friend.subscription_status === 'paused';
+  const isCancelScheduled = friend.subscription_status === 'cancel_scheduled';
   const isPastDue = friend.subscription_status === 'past_due';
   const isIncomplete = friend.subscription_status === 'incomplete';
   const statusLabel = isActive
     ? 'アクティブ'
-    : isIncomplete
-      ? '入金待ち'
-      : isPastDue
-        ? '支払い未完了'
-        : friend.subscription_status === 'canceled'
-          ? '解約済み'
-          : '未登録';
-  const statusColor = isActive ? '#06C755' : isIncomplete ? '#3b82f6' : isPastDue ? '#f59e0b' : '#999';
+    : isPaused
+      ? '休会中'
+      : isCancelScheduled
+        ? '退会予定'
+        : isIncomplete
+          ? '入金待ち'
+          : isPastDue
+            ? '支払い未完了'
+            : friend.subscription_status === 'canceled'
+              ? '解約済み'
+              : '未登録';
+  const statusColor = isActive ? '#06C755' : isPaused ? '#f59e0b' : isCancelScheduled ? '#ef4444' : isIncomplete ? '#3b82f6' : isPastDue ? '#f59e0b' : '#999';
 
   const nextBilling = friend.current_period_end
     ? new Date(friend.current_period_end).toLocaleDateString('ja-JP', {
@@ -654,15 +885,25 @@ function renderMembershipPage(
     <div class="card" style="text-align: center;">
       <p class="greeting">${escName} さん</p>
       <span class="status-badge">${statusLabel}</span>
-      ${isActive ? `
+      ${isActive || isCancelScheduled ? `
       <div class="info-row">
         <span class="info-label">プラン</span>
         <span class="info-value">月額 2,980円</span>
       </div>
       <div class="info-row">
-        <span class="info-label">次回請求日</span>
+        <span class="info-label">${isCancelScheduled ? '利用可能期限' : '次回請求日'}</span>
         <span class="info-value">${nextBilling}</span>
       </div>
+      ` : ''}
+      ${isPaused ? `
+      <p style="font-size: 13px; color: #92400e; margin-top: 12px;">
+        現在休会中です。課金は停止されています。最大3ヶ月間休会可能です。
+      </p>
+      ` : ''}
+      ${isCancelScheduled ? `
+      <p style="font-size: 13px; color: #ef4444; margin-top: 12px;">
+        退会予定です。${nextBilling}まで引き続きコンテンツをご利用いただけます。
+      </p>
       ` : ''}
       ${isIncomplete ? `
       <p style="font-size: 13px; color: #3b82f6; margin-top: 12px;">
@@ -676,7 +917,7 @@ function renderMembershipPage(
       ` : ''}
     </div>
 
-    ${!isActive && !isPastDue ? `
+    ${!isActive && !isPastDue && !isPaused && !isCancelScheduled && !isIncomplete ? `
     <div class="card" style="text-align: center;">
       <p class="section-title">サロンに参加する</p>
       <p class="price">月額 2,980円（税込）</p>
@@ -684,7 +925,7 @@ function renderMembershipPage(
     </div>
     ` : ''}
 
-    ${isActive ? `
+    ${isActive || isCancelScheduled ? `
     <div class="card">
       <p class="section-title">コンテンツ一覧</p>
       <ul class="content-list">
@@ -696,9 +937,29 @@ function renderMembershipPage(
     </div>
     ` : ''}
 
-    ${isActive || isPastDue ? `
+    ${isActive ? `
     <div class="card" style="text-align: center;">
-      <button class="btn btn-outline" onclick="openPortal()">プランを管理・解約する</button>
+      <button class="btn btn-secondary" onclick="pauseSubscription()">休会する</button>
+      <button class="btn btn-outline" onclick="cancelSubscription()">退会する</button>
+    </div>
+    ` : ''}
+
+    ${isPaused ? `
+    <div class="card" style="text-align: center;">
+      <button class="btn btn-primary" onclick="resumeSubscription()">復帰する</button>
+      <button class="btn btn-outline" onclick="cancelSubscription()">退会する</button>
+    </div>
+    ` : ''}
+
+    ${isCancelScheduled ? `
+    <div class="card" style="text-align: center;">
+      <button class="btn btn-primary" onclick="undoCancel()">退会をキャンセルする</button>
+    </div>
+    ` : ''}
+
+    ${isPastDue ? `
+    <div class="card" style="text-align: center;">
+      <button class="btn btn-outline" onclick="openPortal()">お支払い方法を更新する</button>
     </div>
     ` : ''}
   </div>
@@ -748,13 +1009,77 @@ function renderMembershipPage(
           } else {
             alert(data.error || 'エラーが発生しました');
             btn.disabled = false;
-            btn.textContent = 'プランを管理・解約する';
+            btn.textContent = 'お支払い方法を更新する';
           }
         })
         .catch(function() {
           alert('通信エラーが発生しました');
           btn.disabled = false;
-          btn.textContent = 'プランを管理・解約する';
+          btn.textContent = 'お支払い方法を更新する';
+        });
+    }
+
+    function membershipAction(path, btn, originalText, confirmMsg) {
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      btn.disabled = true;
+      btn.textContent = '処理中...';
+      fetch(API_BASE + '/api/membership/' + FRIEND_ID + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.success) {
+            location.reload();
+          } else {
+            alert(data.error || 'エラーが発生しました');
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        })
+        .catch(function() {
+          alert('通信エラーが発生しました');
+          btn.disabled = false;
+          btn.textContent = originalText;
+        });
+    }
+
+    function pauseSubscription() {
+      membershipAction('/pause', event.target, '休会する', '休会しますか？\\n\\n課金が停止されます。最大3ヶ月間休会可能で、いつでも復帰できます。');
+    }
+
+    function resumeSubscription() {
+      membershipAction('/resume', event.target, '復帰する', null);
+    }
+
+    function cancelSubscription() {
+      membershipAction('/cancel', event.target, '退会する', '退会しますか？\\n\\n現在の請求期間末まで引き続きご利用いただけます。');
+    }
+
+    function undoCancel() {
+      var btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '処理中...';
+      fetch(API_BASE + '/api/membership/' + FRIEND_ID + '/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ undo: true }),
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.success) {
+            location.reload();
+          } else {
+            alert(data.error || 'エラーが発生しました');
+            btn.disabled = false;
+            btn.textContent = '退会をキャンセルする';
+          }
+        })
+        .catch(function() {
+          alert('通信エラーが発生しました');
+          btn.disabled = false;
+          btn.textContent = '退会をキャンセルする';
         });
     }
   </script>
