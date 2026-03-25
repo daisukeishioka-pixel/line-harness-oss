@@ -33,6 +33,7 @@ import { richMenus } from './routes/rich-menus.js';
 import { trackedLinks } from './routes/tracked-links.js';
 import { forms } from './routes/forms.js';
 import { salon } from './routes/salon.js';
+import { analytics } from './routes/analytics.js';
 
 export type Env = {
   Bindings: {
@@ -85,6 +86,7 @@ app.route('/', richMenus);
 app.route('/', trackedLinks);
 app.route('/', forms);
 app.route('/', salon);
+app.route('/', analytics);
 
 // 404 fallback
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));
