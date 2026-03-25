@@ -19,8 +19,41 @@ VALUES (
 INSERT OR IGNORE INTO tags (id, name, color) VALUES ('tag-salon-member', 'salon_member', '#1a6b5a');
 INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES ('test-friend-001', 'tag-salon-member', strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'));
 
+-- 既存テーブルを再作成（TEXT PRIMARY KEY に統一）
+DROP TABLE IF EXISTS contents;
+CREATE TABLE IF NOT EXISTS contents (
+  id             TEXT PRIMARY KEY,
+  title          TEXT NOT NULL,
+  category       TEXT NOT NULL CHECK (category IN ('neck_shoulder', 'back_chest', 'pelvis_waist', 'morning_routine', 'archive')),
+  description    TEXT,
+  video_url      TEXT,
+  thumbnail_url  TEXT,
+  duration       INTEGER,
+  is_published   INTEGER NOT NULL DEFAULT 1,
+  sort_order     INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_contents_category ON contents (category);
+CREATE INDEX IF NOT EXISTS idx_contents_published ON contents (is_published);
+
+DROP TABLE IF EXISTS schedules;
+CREATE TABLE IF NOT EXISTS schedules (
+  id             TEXT PRIMARY KEY,
+  title          TEXT NOT NULL,
+  description    TEXT,
+  scheduled_at   TEXT NOT NULL,
+  live_url       TEXT,
+  archive_url    TEXT,
+  is_published   INTEGER NOT NULL DEFAULT 1,
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_scheduled_at ON schedules (scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_schedules_published ON schedules (is_published);
+
 -- コンテンツデータ
-INSERT OR IGNORE INTO contents (id, title, category, description, video_url, thumbnail_url, duration, is_published, sort_order)
+INSERT INTO contents (id, title, category, description, video_url, thumbnail_url, duration, is_published, sort_order)
 VALUES
   ('cnt-001', '首・肩スッキリストレッチ 10分', 'neck_shoulder', '肩こり解消に効果的な基本ストレッチです', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', NULL, 600, 1, 1),
   ('cnt-002', '肩甲骨はがしエクササイズ', 'neck_shoulder', 'デスクワーカー必見の肩甲骨ほぐし', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', NULL, 480, 1, 2),
@@ -32,7 +65,7 @@ VALUES
   ('cnt-008', '第10回 Liveアーカイブ: 質疑応答', 'archive', '会員限定のLive配信アーカイブです', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', NULL, 3600, 1, 1);
 
 -- スケジュールデータ（今後のLive配信）
-INSERT OR IGNORE INTO schedules (id, title, description, scheduled_at, live_url, is_published)
+INSERT INTO schedules (id, title, description, scheduled_at, live_url, is_published)
 VALUES
   ('sch-001', '第11回 Live配信: 肩こり特集', '肩こりの原因と対策を解説します', strftime('%Y-%m-%dT19:00:00', 'now', '+7 days'), 'https://www.youtube.com/live/example', 1),
   ('sch-002', '第12回 Live配信: 腰痛ケア特集', '腰痛に悩む方向けの特別セッション', strftime('%Y-%m-%dT19:00:00', 'now', '+14 days'), NULL, 1),
