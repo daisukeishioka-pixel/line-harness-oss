@@ -28,6 +28,7 @@ interface StripeWebhookBody {
       subscription?: string;
       status?: string;
       mode?: string;
+      payment_status?: string;
       client_reference_id?: string;
       current_period_end?: number;
       lines?: { data: Array<{ price?: { id: string } }> };
@@ -93,12 +94,16 @@ stripe.post('/api/checkout', async (c) => {
         .run();
     }
 
-    // Checkout Session作成
+    // Checkout Session作成（カード＋口座振替対応）
     const session = (await stripeRequest(stripeKey, 'POST', '/checkout/sessions', {
       'customer': customerId,
       'mode': 'subscription',
       'line_items[0][price]': PRICE_ID,
       'line_items[0][quantity]': '1',
+      'payment_method_types[0]': 'card',
+      'payment_method_types[1]': 'customer_balance',
+      'payment_method_options[customer_balance][funding_type]': 'bank_transfer',
+      'payment_method_options[customer_balance][bank_transfer][type]': 'jp_bank_transfer',
       'success_url': `${WORKERS_URL}/api/membership/${friend.id}?status=success`,
       'cancel_url': `${WORKERS_URL}/api/membership/${friend.id}?status=cancelled`,
       'client_reference_id': friend.id,
@@ -299,17 +304,21 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
       const subscriptionId = obj.subscription as string | undefined;
       const customerId = obj.customer as string | undefined;
 
+      // 口座振替の場合、payment_statusが'unpaid'になるため、
+      // 実際の入金まではincompleteとして扱う
+      const subscriptionStatus = obj.payment_status === 'unpaid' ? 'incomplete' : 'active';
+
       // サブスクリプション情報をfriendsに保存
       await db
         .prepare(
           `UPDATE friends SET
             stripe_customer_id = COALESCE(?, stripe_customer_id),
             subscription_id = COALESCE(?, subscription_id),
-            subscription_status = 'active',
+            subscription_status = ?,
             updated_at = ?
           WHERE id = ?`,
         )
-        .bind(customerId ?? null, subscriptionId ?? null, now, friendId)
+        .bind(customerId ?? null, subscriptionId ?? null, subscriptionStatus, now, friendId)
         .run();
 
       // サブスクリプションの詳細を取得してcurrent_period_endを保存
@@ -331,27 +340,31 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         }
       }
 
-      // 自動タグ付け: salon_member
-      const memberTag = await db
-        .prepare(`SELECT id FROM tags WHERE name = 'salon_member'`)
-        .first<{ id: string }>();
-      if (memberTag) {
-        await db
-          .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
-          .bind(friendId, memberTag.id, now)
-          .run();
+      // 口座振替で未払いの場合はタグ付け・スコアリングをスキップ
+      // （入金後に customer.subscription.updated で active に更新される）
+      if (subscriptionStatus === 'active') {
+        // 自動タグ付け: salon_member
+        const memberTag = await db
+          .prepare(`SELECT id FROM tags WHERE name = 'salon_member'`)
+          .first<{ id: string }>();
+        if (memberTag) {
+          await db
+            .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
+            .bind(friendId, memberTag.id, now)
+            .run();
+        }
+
+        // スコアリング
+        const { applyScoring } = await import('@line-crm/db');
+        await applyScoring(db, friendId, 'purchase');
+
+        // イベントバスに発火
+        const { fireEvent } = await import('../services/event-bus.js');
+        await fireEvent(db, 'cv_fire', {
+          friendId,
+          eventData: { type: 'subscription_started', subscriptionId, stripeEventId: body.id },
+        });
       }
-
-      // スコアリング
-      const { applyScoring } = await import('@line-crm/db');
-      await applyScoring(db, friendId, 'purchase');
-
-      // イベントバスに発火
-      const { fireEvent } = await import('../services/event-bus.js');
-      await fireEvent(db, 'cv_fire', {
-        friendId,
-        eventData: { type: 'subscription_started', subscriptionId, stripeEventId: body.id },
-      });
     }
 
     // ========== customer.subscription.updated ==========
@@ -361,12 +374,40 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         ? new Date(obj.current_period_end * 1000).toISOString()
         : null;
 
+      // 現在のステータスを取得（incomplete → active への遷移を検知するため）
+      const currentFriend = await db
+        .prepare(`SELECT subscription_status FROM friends WHERE id = ?`)
+        .bind(friendId)
+        .first<{ subscription_status: string | null }>();
+
       await db
         .prepare(
           `UPDATE friends SET subscription_status = ?, current_period_end = COALESCE(?, current_period_end), updated_at = ? WHERE id = ?`,
         )
         .bind(status ?? null, periodEnd, now, friendId)
         .run();
+
+      // 口座振替の入金完了: incomplete → active に遷移した場合、タグ付け・スコアリングを実行
+      if (status === 'active' && currentFriend?.subscription_status === 'incomplete') {
+        const memberTag = await db
+          .prepare(`SELECT id FROM tags WHERE name = 'salon_member'`)
+          .first<{ id: string }>();
+        if (memberTag) {
+          await db
+            .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
+            .bind(friendId, memberTag.id, now)
+            .run();
+        }
+
+        const { applyScoring } = await import('@line-crm/db');
+        await applyScoring(db, friendId, 'purchase');
+
+        const { fireEvent } = await import('../services/event-bus.js');
+        await fireEvent(db, 'cv_fire', {
+          friendId,
+          eventData: { type: 'subscription_started', stripeEventId: body.id },
+        });
+      }
     }
 
     // ========== customer.subscription.deleted ==========
@@ -480,14 +521,17 @@ function renderMembershipPage(
 ): string {
   const isActive = friend.subscription_status === 'active' || friend.subscription_status === 'trialing';
   const isPastDue = friend.subscription_status === 'past_due';
+  const isIncomplete = friend.subscription_status === 'incomplete';
   const statusLabel = isActive
     ? 'アクティブ'
-    : isPastDue
-      ? '支払い未完了'
-      : friend.subscription_status === 'canceled'
-        ? '解約済み'
-        : '未登録';
-  const statusColor = isActive ? '#06C755' : isPastDue ? '#f59e0b' : '#999';
+    : isIncomplete
+      ? '入金待ち'
+      : isPastDue
+        ? '支払い未完了'
+        : friend.subscription_status === 'canceled'
+          ? '解約済み'
+          : '未登録';
+  const statusColor = isActive ? '#06C755' : isIncomplete ? '#3b82f6' : isPastDue ? '#f59e0b' : '#999';
 
   const nextBilling = friend.current_period_end
     ? new Date(friend.current_period_end).toLocaleDateString('ja-JP', {
@@ -619,6 +663,11 @@ function renderMembershipPage(
         <span class="info-label">次回請求日</span>
         <span class="info-value">${nextBilling}</span>
       </div>
+      ` : ''}
+      ${isIncomplete ? `
+      <p style="font-size: 13px; color: #3b82f6; margin-top: 12px;">
+        口座振替でのお支払いをお待ちしております。振込先情報はメールをご確認ください。入金確認後、自動的にアクティブになります。
+      </p>
       ` : ''}
       ${isPastDue ? `
       <p style="font-size: 13px; color: #92400e; margin-top: 12px;">
