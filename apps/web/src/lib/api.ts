@@ -458,4 +458,28 @@ export const api = {
     getMigration: (migrationId: string) =>
       fetchApi<ApiResponse<AccountMigration>>(`/api/accounts/migrations/${migrationId}`),
   },
+  contents: {
+    list: (category?: string) =>
+      fetchApi<ApiResponse<{ id: string; title: string; category: string; description: string | null; videoUrl: string | null; thumbnailUrl: string | null; duration: number | null; isPublished: boolean; sortOrder: number; createdAt: string; updatedAt: string }[]>>(
+        '/api/contents' + (category ? '?' + new URLSearchParams({ category }) : ''),
+      ),
+    create: (data: { title: string; category: string; description?: string | null; videoUrl?: string | null; thumbnailUrl?: string | null; duration?: number | null; sortOrder?: number }) =>
+      fetchApi<ApiResponse<unknown>>('/api/contents', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Record<string, unknown>) =>
+      fetchApi<ApiResponse<unknown>>(`/api/contents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/contents/${id}`, { method: 'DELETE' }),
+  },
+  schedules: {
+    list: () =>
+      fetchApi<ApiResponse<{ id: string; title: string; description: string | null; scheduledAt: string; liveUrl: string | null; archiveUrl: string | null; isPublished: boolean; createdAt: string; updatedAt: string }[]>>(
+        '/api/schedules',
+      ),
+    create: (data: { title: string; scheduledAt: string; description?: string | null; liveUrl?: string | null; archiveUrl?: string | null }) =>
+      fetchApi<ApiResponse<unknown>>('/api/schedules', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Record<string, unknown>) =>
+      fetchApi<ApiResponse<unknown>>(`/api/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/schedules/${id}`, { method: 'DELETE' }),
+  },
 }
