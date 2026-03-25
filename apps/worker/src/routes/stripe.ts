@@ -111,6 +111,62 @@ async function sendLineNotification(env: Env['Bindings'], lineUserId: string, te
   }
 }
 
+// ========== 決済管理: 会員一覧API ==========
+
+stripe.get('/api/payments/members', async (c) => {
+  try {
+    const db = c.env.DB;
+    const rows = await db
+      .prepare(
+        `SELECT id, display_name, picture_url, subscription_status, subscription_id, stripe_customer_id, current_period_end, created_at
+         FROM friends
+         WHERE subscription_status IS NOT NULL OR stripe_customer_id IS NOT NULL
+         ORDER BY
+           CASE subscription_status
+             WHEN 'active' THEN 1
+             WHEN 'trialing' THEN 2
+             WHEN 'incomplete' THEN 3
+             WHEN 'past_due' THEN 4
+             WHEN 'paused' THEN 5
+             WHEN 'cancel_scheduled' THEN 6
+             WHEN 'canceled' THEN 7
+             ELSE 8
+           END,
+           created_at DESC`,
+      )
+      .all<{
+        id: string;
+        display_name: string | null;
+        picture_url: string | null;
+        subscription_status: string | null;
+        subscription_id: string | null;
+        stripe_customer_id: string | null;
+        current_period_end: string | null;
+        created_at: string;
+      }>();
+
+    return c.json({
+      success: true,
+      data: {
+        items: rows.results.map((r) => ({
+          id: r.id,
+          displayName: r.display_name,
+          pictureUrl: r.picture_url,
+          subscriptionStatus: r.subscription_status,
+          subscriptionId: r.subscription_id,
+          stripeCustomerId: r.stripe_customer_id,
+          currentPeriodEnd: r.current_period_end,
+          createdAt: r.created_at,
+        })),
+        total: rows.results.length,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/payments/members error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 // ========== Checkoutセッション作成 ==========
 
 stripe.post('/api/checkout', async (c) => {
