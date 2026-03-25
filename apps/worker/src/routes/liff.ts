@@ -299,6 +299,50 @@ liffRoutes.post('/api/liff/profile', async (c) => {
   }
 });
 
+// POST /api/liff/membership - get membership/subscription status by lineUserId (public)
+liffRoutes.post('/api/liff/membership', async (c) => {
+  try {
+    const body = await c.req.json<{ lineUserId: string }>();
+    if (!body.lineUserId) {
+      return c.json({ success: false, error: 'lineUserId is required' }, 400);
+    }
+
+    const friend = await c.env.DB
+      .prepare(
+        `SELECT id, display_name, subscription_status, subscription_id, current_period_end, stripe_customer_id
+         FROM friends WHERE line_user_id = ?`,
+      )
+      .bind(body.lineUserId)
+      .first<{
+        id: string;
+        display_name: string | null;
+        subscription_status: string | null;
+        subscription_id: string | null;
+        current_period_end: string | null;
+        stripe_customer_id: string | null;
+      }>();
+
+    if (!friend) {
+      return c.json({ success: false, error: 'Friend not found' }, 404);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        friendId: friend.id,
+        displayName: friend.display_name,
+        subscriptionStatus: friend.subscription_status,
+        subscriptionId: friend.subscription_id,
+        currentPeriodEnd: friend.current_period_end,
+        isActive: friend.subscription_status === 'active' || friend.subscription_status === 'trialing',
+      },
+    });
+  } catch (err) {
+    console.error('POST /api/liff/membership error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 // POST /api/liff/link - link friend to user UUID (public, verified via LINE ID token)
 liffRoutes.post('/api/liff/link', async (c) => {
   try {
