@@ -140,6 +140,26 @@ async function handleEvent(
       }
     }
 
+    // ウェルカムメッセージ送信
+    try {
+      await lineClient.pushMessage(userId, [{
+        type: 'text',
+        text: `🎉 友だち追加ありがとうございます！
+
+「整体卒業サロン」は、体の不調を自分で解消できるようになるオンラインサロンです。
+
+🔑 サロンでできること：
+・セルフケア動画で毎日5分の習慣づくり
+・月2回のLive配信で直接アドバイス
+・メンバー同士のコミュニティ
+・7日間整体卒業チャレンジ
+
+まずは下のメニューから「マイページ」をタップして、サロンの詳細をご覧ください👇`,
+      }]);
+    } catch (err) {
+      console.error('Failed to send welcome message:', err);
+    }
+
     // イベントバス発火: friend_add
     await fireEvent(db, 'friend_add', { friendId: friend.id, eventData: { displayName: friend.display_name } }, lineAccessToken);
     return;
