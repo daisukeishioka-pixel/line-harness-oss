@@ -99,6 +99,28 @@ async function removeTag(db: D1Database, friendId: string, tagName: string) {
   }
 }
 
+/** リッチメニュー切り替えヘルパー */
+async function switchToMemberRichMenu(env: Env['Bindings'], lineUserId: string) {
+  const memberMenuId = (env as unknown as Record<string, string | undefined>).RICH_MENU_MEMBER_ID;
+  if (!memberMenuId) return; // 未設定の場合はスキップ
+  try {
+    const client = new LineClient(env.LINE_CHANNEL_ACCESS_TOKEN);
+    await client.linkRichMenuToUser(lineUserId, memberMenuId);
+  } catch (err) {
+    console.error('Failed to switch to member rich menu:', err);
+  }
+}
+
+async function revertToDefaultRichMenu(env: Env['Bindings'], lineUserId: string) {
+  try {
+    const client = new LineClient(env.LINE_CHANNEL_ACCESS_TOKEN);
+    await client.unlinkRichMenuFromUser(lineUserId);
+    // unlinkすると、デフォルトリッチメニュー（非会員用）に自動的に戻る
+  } catch (err) {
+    console.error('Failed to revert rich menu:', err);
+  }
+}
+
 /** LINE通知送信ヘルパー */
 async function sendLineNotification(env: Env['Bindings'], lineUserId: string, text: string) {
   const token = env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -653,12 +675,13 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
           eventData: { type: 'subscription_started', subscriptionId, stripeEventId: body.id },
         });
 
-        // LINE通知: 契約完了
+        // LINE通知: 契約完了 + リッチメニュー切り替え
         const friendForNotify = await db
           .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
           .bind(friendId)
           .first<{ line_user_id: string }>();
         if (friendForNotify) {
+          await switchToMemberRichMenu(c.env, friendForNotify.line_user_id);
           await sendLineNotification(
             c.env,
             friendForNotify.line_user_id,
@@ -709,9 +732,14 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         .bind(resolvedStatus, periodEnd, now, friendId)
         .run();
 
-      // 口座振替の入金完了: incomplete → active に遷移した場合、タグ付け・スコアリングを実行
+      // 口座振替の入金完了: incomplete → active に遷移した場合、タグ付け・スコアリング・リッチメニュー切替を実行
       if (status === 'active' && !obj.pause_collection && !obj.cancel_at_period_end && currentFriend?.subscription_status === 'incomplete') {
         await addTag(db, friendId, 'salon_member');
+
+        // リッチメニューを会員用に切り替え
+        if (currentFriend?.line_user_id) {
+          await switchToMemberRichMenu(c.env, currentFriend.line_user_id);
+        }
 
         const { applyScoring } = await import('@line-crm/db');
         await applyScoring(db, friendId, 'purchase');
@@ -782,12 +810,13 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
         eventData: { type: 'subscription_cancelled', stripeEventId: body.id },
       });
 
-      // LINE通知: サブスクリプション終了
+      // リッチメニューを非会員用（デフォルト）に戻す + LINE通知
       const friendForNotify = await db
         .prepare(`SELECT line_user_id FROM friends WHERE id = ?`)
         .bind(friendId)
         .first<{ line_user_id: string }>();
       if (friendForNotify) {
+        await revertToDefaultRichMenu(c.env, friendForNotify.line_user_id);
         await sendLineNotification(
           c.env,
           friendForNotify.line_user_id,

@@ -47,6 +47,7 @@ export type Env = {
     LINE_LOGIN_CHANNEL_SECRET: string;
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
+    RICH_MENU_MEMBER_ID?: string;
   };
 };
 
