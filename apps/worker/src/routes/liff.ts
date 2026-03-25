@@ -691,7 +691,7 @@ initLiff().then(function() {
     var h = '<p class="section-title">&#x2728; 新着コンテンツ</p>';
     res.data.items.slice(0,3).forEach(function(c) {
       h += '<div class="content-card" onclick="openVideo(\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
-        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=&quot;#e0e0e0&quot;">' +
         '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div><div class="content-meta">' + esc(c.category) + '</div></div></div>';
     });
     el.innerHTML = h;
@@ -755,7 +755,7 @@ initLiff().then(function() {
     var h = '<p class="section-title">&#x1f4fc; アーカイブ</p>';
     archives.forEach(function(c) {
       h += '<div class="content-card" onclick="openVideo(\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
-        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=&quot;#e0e0e0&quot;">' +
         '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div></div></div>';
     });
     el.innerHTML = h;
@@ -795,7 +795,7 @@ function renderList() {
   var h = '';
   items.forEach(function(c) {
     h += '<div class="content-card" onclick="watchVideo(\\'' + c.id + '\\',\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
-      '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+      '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=&quot;#e0e0e0&quot;">' +
       '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div><div class="content-meta">' + (CAT_LABELS[c.category]||c.category) + (c.duration?' ・ '+fmtDur(c.duration):'') + '</div></div></div>';
   });
   el.innerHTML = h;
