@@ -7,13 +7,14 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // Public paths — no API_KEY required
   // These are protected by other means (LINE signature, Stripe signature, LIFF token, etc.)
   if (
-    path === '/webhook' ||
+    path === '/' ||
     path === '/docs' ||
     path === '/openapi.json' ||
     path === '/api/affiliates/click' ||
     path === '/api/integrations/stripe/webhook' ||
     path === '/api/checkout' ||
-    path === '/liff' ||
+    path.startsWith('/webhook') ||
+    path.startsWith('/liff') ||
     path.startsWith('/t/') ||
     path.startsWith('/api/liff/') ||
     path.startsWith('/auth/') ||
