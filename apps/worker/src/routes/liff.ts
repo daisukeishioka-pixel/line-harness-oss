@@ -16,6 +16,106 @@ const liffRoutes = new Hono<Env>();
 
 const DEFAULT_LIFF_ID = '2009595752-X90IWgrz';
 
+// ─── 会員ページ共通CSS ──────────────────────────────────────────
+
+function memberPageCSS(): string {
+  return `
+    :root { --green: #1a6b5a; --green-light: #e8f5f0; --gold: #d4a853; --bg: #f7f7f5; --card: #fff; --text: #333; --text-sub: #888; --border: #eee; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 80px; }
+    .header-bar { background: var(--green); color: #fff; padding: 16px; text-align: center; }
+    .header-bar h1 { font-size: 16px; font-weight: 700; }
+    .header-bar p { font-size: 11px; opacity: 0.8; }
+    .container { max-width: 480px; margin: 0 auto; padding: 12px; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px; }
+    .section-title { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
+    .btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; text-align: center; font-family: inherit; }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-sm { display: inline-block; width: auto; padding: 6px 14px; font-size: 12px; border-radius: 8px; }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #eee; display: flex; z-index: 50; max-width: 100%; }
+    .bottom-nav a { flex: 1; text-align: center; padding: 8px 4px; text-decoration: none; color: #aaa; font-size: 10px; font-weight: 600; transition: color 0.2s; }
+    .bottom-nav a.active { color: var(--green); }
+    .bottom-nav svg { display: block; margin: 0 auto 2px; width: 22px; height: 22px; }
+    .content-card { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .content-card:last-child { border-bottom: none; }
+    .content-thumb { width: 80px; height: 52px; border-radius: 6px; background: #e0e0e0; object-fit: cover; flex-shrink: 0; }
+    .content-info { flex: 1; min-width: 0; }
+    .content-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; line-height: 1.3; }
+    .content-meta { font-size: 11px; color: var(--text-sub); }
+    .schedule-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .schedule-item:last-child { border-bottom: none; }
+    .schedule-date { font-size: 11px; color: var(--gold); font-weight: 700; }
+    .schedule-name { font-size: 13px; font-weight: 600; margin-top: 2px; }
+    .news-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .news-item:last-child { border-bottom: none; }
+    .news-badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+    .news-title { font-size: 13px; font-weight: 600; }
+    .news-date { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+    .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+    .cal-header { font-size: 10px; font-weight: 700; color: var(--text-sub); padding: 4px 0; }
+    .cal-day { position: relative; padding: 6px 0; font-size: 12px; border-radius: 8px; cursor: pointer; }
+    .cal-day.today { font-weight: 700; color: var(--green); }
+    .cal-day.has-activity::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    .cal-day.empty { color: transparent; cursor: default; }
+    .cal-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .cal-nav button { background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 8px; color: var(--text-sub); }
+    .cal-nav span { font-size: 14px; font-weight: 600; }
+    .goal-display { background: var(--green-light); border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--green); font-weight: 600; margin-top: 8px; }
+    .goal-input { width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
+    .video-modal { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.85); display: none; flex-direction: column; }
+    .video-modal.show { display: flex; }
+    .video-modal-close { color: #fff; font-size: 28px; padding: 12px 16px; cursor: pointer; text-align: right; }
+    .video-modal iframe { flex: 1; width: 100%; border: none; }
+    .category-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+    .category-pills::-webkit-scrollbar { display: none; }
+    .pill { flex-shrink: 0; padding: 5px 12px; border-radius: 14px; font-size: 11px; font-weight: 600; background: #f0f0f0; color: var(--text-sub); cursor: pointer; border: none; }
+    .pill.active { background: var(--green); color: #fff; }
+    .live-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #fff; }
+    .live-upcoming { background: #2563eb; }
+    .live-archive { background: #6b7280; }
+  `;
+}
+
+function bottomNavHTML(activePage: string, workersUrl: string): string {
+  const pages = [
+    { key: 'home', label: 'ホーム', path: '/liff/home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+    { key: 'live', label: 'Live', path: '/liff/live', icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },
+    { key: 'videos', label: '動画', path: '/liff/videos', icon: 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+    { key: 'mypage', label: 'マイページ', path: '/liff/mypage', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+  ];
+  return `<nav class="bottom-nav">${pages.map(p =>
+    `<a href="${workersUrl}${p.path}" class="${p.key === activePage ? 'active' : ''}">` +
+    `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${p.icon}"/></svg>${p.label}</a>`
+  ).join('')}</nav>`;
+}
+
+function liffInitScript(liffId: string, workersUrl: string): string {
+  return `
+    var LIFF_ID = '${liffId.replace(/'/g, "\\'")}';
+    var API = '${workersUrl.replace(/'/g, "\\'")}';
+    var friendId = null;
+
+    function initLiff() {
+      return liff.init({ liffId: LIFF_ID }).then(function() {
+        if (!liff.isLoggedIn()) { liff.login(); return Promise.reject('login'); }
+        return liff.getProfile();
+      }).then(function(profile) {
+        if (!profile) return Promise.reject('no profile');
+        return fetch(API + '/api/liff/profile', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineUserId: profile.userId }),
+        }).then(function(r) { return r.json(); });
+      }).then(function(data) {
+        if (data && data.success && data.data) { friendId = data.data.id; return friendId; }
+        return Promise.reject('friend not found');
+      });
+    }
+    function fmtDate(iso) { if (!iso) return '-'; return new Date(iso).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' }); }
+    function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  `;
+}
+
 // ─── LIFF マイページ エントリーポイント ──────────────────────────
 
 /**
@@ -476,6 +576,272 @@ liffRoutes.post('/api/liff/signup', async (c) => {
     console.error('POST /api/liff/signup error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
+});
+
+// ─── 会員ホームページ (/liff/home) ──────────────────────────────
+
+liffRoutes.get('/liff/home', (c) => {
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const w = new URL(c.req.url).origin;
+  return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>ホーム - 整体卒業サロン</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>${memberPageCSS()}</style></head><body>
+<div class="header-bar"><h1>整体卒業サロン</h1><p>ホーム</p></div>
+<div class="container">
+  <div class="card" id="calendarCard"><p class="section-title">&#x1f4c5; アクティビティカレンダー</p><div id="calArea"></div><div id="goalArea" style="margin-top:10px"></div></div>
+  <div class="card" id="scheduleCard"><p class="section-title">&#x1f4e1; 次回Live配信</p><p class="empty">読み込み中...</p></div>
+  <div class="card" id="newContentCard"><p class="section-title">&#x2728; 新着コンテンツ</p><p class="empty">読み込み中...</p></div>
+  <div class="card" id="newsCard"><p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">読み込み中...</p></div>
+</div>
+${bottomNavHTML('home', w)}
+<div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+<script>
+${liffInitScript(liffId, w)}
+var calYear, calMonth, activities = [];
+
+function renderCalendar() {
+  var now = new Date();
+  if (!calYear) { calYear = now.getFullYear(); calMonth = now.getMonth(); }
+  var first = new Date(calYear, calMonth, 1);
+  var last = new Date(calYear, calMonth + 1, 0);
+  var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  var actDates = {};
+  activities.forEach(function(a) { actDates[a.activity_date.slice(0,10)] = true; });
+
+  var h = '<div class="cal-nav"><button onclick="changeMonth(-1)">&lt;</button><span>' + calYear + '年' + (calMonth+1) + '月</span><button onclick="changeMonth(1)">&gt;</button></div>';
+  h += '<div class="calendar">';
+  ['日','月','火','水','木','金','土'].forEach(function(d) { h += '<div class="cal-header">' + d + '</div>'; });
+  for (var i = 0; i < first.getDay(); i++) h += '<div class="cal-day empty">.</div>';
+  for (var d = 1; d <= last.getDate(); d++) {
+    var ds = calYear + '-' + String(calMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    var cls = 'cal-day';
+    if (ds === todayStr) cls += ' today';
+    if (actDates[ds]) cls += ' has-activity';
+    h += '<div class="' + cls + '" onclick="logActivity(\\'' + ds + '\\')">' + d + '</div>';
+  }
+  h += '</div>';
+  h += '<div style="margin-top:8px;text-align:center"><button class="btn-sm btn-green" onclick="logManual()">&#x1f4aa; ストレッチした！</button></div>';
+  document.getElementById('calArea').innerHTML = h;
+}
+function changeMonth(delta) { calMonth += delta; if (calMonth < 0) { calMonth = 11; calYear--; } if (calMonth > 11) { calMonth = 0; calYear++; } loadActivities(); }
+function logActivity(date) { logManualForDate(date); }
+function logManual() {
+  var now = new Date(); var ds = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  logManualForDate(ds);
+}
+function logManualForDate(ds) {
+  if (!friendId) return;
+  fetch(API + '/api/membership/' + friendId + '/activities', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activityType: 'manual', activityDate: ds, note: 'ストレッチ' }),
+  }).then(function() { loadActivities(); });
+}
+function loadActivities() {
+  if (!friendId) return;
+  var monthKey = calYear + '-' + String(calMonth+1).padStart(2,'0');
+  fetch(API + '/api/membership/' + friendId + '/activities?month=' + monthKey)
+    .then(function(r) { return r.json(); })
+    .then(function(res) { if (res.success) { activities = res.data; renderCalendar(); } });
+}
+
+function renderGoal(goal) {
+  var el = document.getElementById('goalArea');
+  if (goal) {
+    el.innerHTML = '<div class="goal-display">&#x1f3af; ' + esc(goal.goal_text) + '</div><button style="margin-top:6px;font-size:11px;color:var(--text-sub);background:none;border:none;cursor:pointer" onclick="editGoal()">目標を変更</button>';
+  } else {
+    el.innerHTML = '<input class="goal-input" id="goalInput" placeholder="今日の目標を設定（例: 毎日5分ストレッチ）"><button class="btn-sm btn-green" style="margin-top:6px" onclick="saveGoal()">設定</button>';
+  }
+}
+function editGoal() {
+  document.getElementById('goalArea').innerHTML = '<input class="goal-input" id="goalInput" placeholder="新しい目標"><button class="btn-sm btn-green" style="margin-top:6px" onclick="saveGoal()">保存</button>';
+}
+function saveGoal() {
+  var text = document.getElementById('goalInput').value.trim();
+  if (!text || !friendId) return;
+  fetch(API + '/api/membership/' + friendId + '/goals', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goalText: text }),
+  }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) renderGoal(d.data); });
+}
+
+function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
+function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
+
+// Init
+initLiff().then(function() {
+  loadActivities();
+  renderCalendar();
+
+  // Goal
+  fetch(API + '/api/membership/' + friendId + '/goals').then(function(r) { return r.json(); }).then(function(d) { renderGoal(d.success ? d.data : null); });
+
+  // Schedule
+  fetch(API + '/api/membership/' + friendId + '/schedule').then(function(r) { return r.json(); }).then(function(res) {
+    var el = document.getElementById('scheduleCard');
+    if (!res.success || !res.data || !res.data.length) { el.innerHTML = '<p class="section-title">&#x1f4e1; 次回Live配信</p><p class="empty">予定なし</p>'; return; }
+    var h = '<p class="section-title">&#x1f4e1; 次回Live配信</p>';
+    res.data.slice(0,2).forEach(function(s) { h += '<div class="schedule-item"><div class="schedule-date">' + fmtDate(s.scheduledAt) + '</div><div class="schedule-name">' + esc(s.title) + '</div></div>'; });
+    el.innerHTML = h;
+  });
+
+  // New Content (latest 3)
+  fetch(API + '/api/membership/' + friendId + '/content').then(function(r) { return r.json(); }).then(function(res) {
+    var el = document.getElementById('newContentCard');
+    if (!res.success || !res.data || !res.data.items || !res.data.items.length) { el.innerHTML = '<p class="section-title">&#x2728; 新着コンテンツ</p><p class="empty">まだありません</p>'; return; }
+    var h = '<p class="section-title">&#x2728; 新着コンテンツ</p>';
+    res.data.items.slice(0,3).forEach(function(c) {
+      h += '<div class="content-card" onclick="openVideo(\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
+        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+        '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div><div class="content-meta">' + esc(c.category) + '</div></div></div>';
+    });
+    el.innerHTML = h;
+  });
+
+  // News
+  fetch(API + '/api/membership/' + friendId + '/news?limit=3').then(function(r) { return r.json(); }).then(function(res) {
+    var el = document.getElementById('newsCard');
+    if (!res.success || !res.data || !res.data.length) { el.innerHTML = '<p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">お知らせはありません</p>'; return; }
+    var cats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
+    var h = '<p class="section-title">&#x1f4e2; お知らせ</p>';
+    res.data.forEach(function(n) { var cat = cats[n.category] || cats.info; h += '<div class="news-item"><span class="news-badge" style="color:' + cat[0] + ';background:' + cat[2] + '">' + cat[0] + '</span><div class="news-title">' + esc(n.title) + '</div><div class="news-date">' + fmtDate(n.publishedAt) + '</div></div>'; });
+    el.innerHTML = h;
+  });
+}).catch(function(e) { if (e !== 'login') console.error(e); });
+</script></body></html>`);
+});
+
+// ─── Live配信ページ (/liff/live) ─────────────────────────────────
+
+liffRoutes.get('/liff/live', (c) => {
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const w = new URL(c.req.url).origin;
+  return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Live配信 - 整体卒業サロン</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>${memberPageCSS()}</style></head><body>
+<div class="header-bar"><h1>整体卒業サロン</h1><p>Live配信</p></div>
+<div class="container">
+  <div class="card" id="upcomingCard"><p class="section-title">&#x1f4e1; 今後のLive配信</p><p class="empty">読み込み中...</p></div>
+  <div class="card" id="archiveCard"><p class="section-title">&#x1f4fc; アーカイブ</p><p class="empty">読み込み中...</p></div>
+</div>
+${bottomNavHTML('live', w)}
+<div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+<script>
+${liffInitScript(liffId, w)}
+function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
+function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
+
+initLiff().then(function() {
+  // Upcoming
+  fetch(API + '/api/membership/' + friendId + '/schedule').then(function(r) { return r.json(); }).then(function(res) {
+    var el = document.getElementById('upcomingCard');
+    if (!res.success || !res.data || !res.data.length) { el.innerHTML = '<p class="section-title">&#x1f4e1; 今後のLive配信</p><p class="empty">現在予定はありません</p>'; return; }
+    var h = '<p class="section-title">&#x1f4e1; 今後のLive配信</p>';
+    res.data.forEach(function(s) {
+      h += '<div class="schedule-item"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="schedule-date">' + fmtDate(s.scheduledAt) + '</div><div class="schedule-name">' + esc(s.title) + '</div></div>';
+      if (s.liveUrl) h += '<a href="' + esc(s.liveUrl) + '" target="_blank" class="btn-sm btn-green" style="text-decoration:none">参加</a>';
+      h += '</div>';
+      if (s.description) h += '<div style="font-size:12px;color:var(--text-sub);margin-top:4px">' + esc(s.description) + '</div>';
+      h += '</div>';
+    });
+    el.innerHTML = h;
+  });
+
+  // Archives (contents with category=archive)
+  fetch(API + '/api/membership/' + friendId + '/content').then(function(r) { return r.json(); }).then(function(res) {
+    var el = document.getElementById('archiveCard');
+    if (!res.success || !res.data || !res.data.items) { el.innerHTML = '<p class="section-title">&#x1f4fc; アーカイブ</p><p class="empty">まだありません</p>'; return; }
+    var archives = res.data.items.filter(function(c) { return c.category === 'archive'; });
+    if (!archives.length) { el.innerHTML = '<p class="section-title">&#x1f4fc; アーカイブ</p><p class="empty">まだありません</p>'; return; }
+    var h = '<p class="section-title">&#x1f4fc; アーカイブ</p>';
+    archives.forEach(function(c) {
+      h += '<div class="content-card" onclick="openVideo(\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
+        '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+        '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div></div></div>';
+    });
+    el.innerHTML = h;
+  });
+}).catch(function(e) { if (e !== 'login') console.error(e); });
+</script></body></html>`);
+});
+
+// ─── 動画コンテンツページ (/liff/videos) ─────────────────────────
+
+liffRoutes.get('/liff/videos', (c) => {
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  const w = new URL(c.req.url).origin;
+  return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>動画コンテンツ - 整体卒業サロン</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>${memberPageCSS()}</style></head><body>
+<div class="header-bar"><h1>整体卒業サロン</h1><p>動画コンテンツ</p></div>
+<div class="container">
+  <div class="category-pills" id="pills"></div>
+  <div class="card" id="videoList"><p class="empty">読み込み中...</p></div>
+</div>
+${bottomNavHTML('videos', w)}
+<div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+<script>
+${liffInitScript(liffId, w)}
+var allVideos = [], selectedCat = 'all';
+var CATS = [{key:'all',label:'すべて'},{key:'neck_shoulder',label:'首・肩'},{key:'back_chest',label:'背中・胸'},{key:'pelvis_waist',label:'骨盤・腰'},{key:'morning_routine',label:'朝ルーティン'}];
+var CAT_LABELS = {neck_shoulder:'首・肩',back_chest:'背中・胸',pelvis_waist:'骨盤・腰',morning_routine:'朝ルーティン',archive:'アーカイブ'};
+
+function fmtDur(s) { if (!s) return ''; var m = Math.floor(s/60), ss = s%60; return m + ':' + (ss<10?'0':'') + ss; }
+function renderPills() { var h = ''; CATS.forEach(function(c) { h += '<button class="pill' + (c.key===selectedCat?' active':'') + '" onclick="filterCat(\\'' + c.key + '\\')">' + c.label + '</button>'; }); document.getElementById('pills').innerHTML = h; }
+function filterCat(cat) { selectedCat = cat; renderPills(); renderList(); }
+function renderList() {
+  var items = selectedCat === 'all' ? allVideos.filter(function(c){return c.category!=='archive';}) : allVideos.filter(function(c){return c.category===selectedCat;});
+  var el = document.getElementById('videoList');
+  if (!items.length) { el.innerHTML = '<p class="empty">コンテンツはまだありません</p>'; return; }
+  var h = '';
+  items.forEach(function(c) {
+    h += '<div class="content-card" onclick="watchVideo(\\'' + c.id + '\\',\\'' + (c.videoUrl||'').replace(/'/g,'') + '\\')">' +
+      '<img class="content-thumb" src="' + esc(c.thumbnailUrl||'') + '" onerror="this.style.background=\'#e0e0e0\'">' +
+      '<div class="content-info"><div class="content-title">' + esc(c.title) + '</div><div class="content-meta">' + (CAT_LABELS[c.category]||c.category) + (c.duration?' ・ '+fmtDur(c.duration):'') + '</div></div></div>';
+  });
+  el.innerHTML = h;
+}
+function watchVideo(contentId, url) {
+  openVideo(url);
+  // Record activity
+  if (friendId) {
+    var now = new Date(); var ds = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+    fetch(API + '/api/membership/' + friendId + '/activities', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activityType: 'video_watch', contentId: contentId, activityDate: ds }),
+    });
+  }
+}
+function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
+function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
+
+initLiff().then(function() {
+  renderPills();
+  fetch(API + '/api/membership/' + friendId + '/content').then(function(r) { return r.json(); }).then(function(res) {
+    if (res.success && res.data && res.data.items) { allVideos = res.data.items; }
+    renderList();
+  });
+}).catch(function(e) { if (e !== 'login') console.error(e); });
+</script></body></html>`);
+});
+
+// ─── マイページ (/liff/mypage) ───────────────────────────────────
+
+liffRoutes.get('/liff/mypage', (c) => {
+  const w = new URL(c.req.url).origin;
+  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
+  return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>マイページ - 整体卒業サロン</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>${memberPageCSS()}</style></head><body>
+<div class="header-bar"><h1>整体卒業サロン</h1><p>マイページ</p></div>
+<div class="container"><div id="content"><p class="empty">読み込み中...</p></div></div>
+${bottomNavHTML('mypage', w)}
+<script>
+${liffInitScript(liffId, w)}
+initLiff().then(function() {
+  // マイページはstripe.tsのrenderMembershipPageを使う
+  window.location.replace(API + '/api/membership/' + friendId);
+}).catch(function(e) { if (e !== 'login') console.error(e); });
+</script></body></html>`);
 });
 
 // ─── Short Link Landing Page (/r/:ref) ──────────────────────────
