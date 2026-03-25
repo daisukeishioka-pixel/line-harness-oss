@@ -16,6 +16,7 @@
 
 import { initBooking } from './booking.js';
 import { initForm } from './form.js';
+import { initMembership } from './membership.js';
 
 declare const liff: {
   init(config: { liffId: string }): Promise<void>;
@@ -48,6 +49,7 @@ function apiCall(path: string, options?: RequestInit): Promise<Response> {
 function getPage(): string | null {
   const path = window.location.pathname.replace(/^\/+/, '');
   if (path === 'book') return 'book';
+  if (path === 'membership') return 'membership';
   const params = new URLSearchParams(window.location.search);
   return params.get('page');
 }
@@ -255,6 +257,8 @@ async function main() {
       const params = new URLSearchParams(window.location.search);
       const formId = params.get('id');
       await initForm(formId);
+    } else if (page === 'membership') {
+      await initMembership();
     } else {
       await linkAndAddFlow();
     }
