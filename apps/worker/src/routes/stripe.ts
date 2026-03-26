@@ -486,10 +486,15 @@ stripe.post('/api/membership/:friendId/cancel', async (c) => {
       'cancel_at_period_end': 'true',
     })) as { current_period_end?: number };
 
-    // D1ステータスを退会予定に更新
+    // current_period_end を保存
+    const periodEndIso = sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null;
+
+    // D1ステータスを退会予定に更新 + current_period_end を保存
     await db
-      .prepare(`UPDATE friends SET subscription_status = 'cancel_scheduled', updated_at = ? WHERE id = ?`)
-      .bind(now, friendId)
+      .prepare(`UPDATE friends SET subscription_status = 'cancel_scheduled', current_period_end = COALESCE(?, current_period_end), updated_at = ? WHERE id = ?`)
+      .bind(periodEndIso, now, friendId)
       .run();
 
     // LINE通知（利用可能期限を明記）
