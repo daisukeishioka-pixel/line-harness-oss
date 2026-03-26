@@ -6,6 +6,7 @@ import { processScheduledBroadcasts } from './services/broadcast.js';
 import { processReminderDeliveries } from './services/reminder-delivery.js';
 import { checkAccountHealth } from './services/ban-monitor.js';
 import { refreshExpiringTokens } from './services/token-refresh.js';
+import { processSequenceDeliveries } from './services/sequence-delivery.js';
 import { authMiddleware } from './middleware/auth.js';
 import { webhook } from './routes/webhook.js';
 import { friends } from './routes/friends.js';
@@ -35,6 +36,7 @@ import { forms } from './routes/forms.js';
 import { salon } from './routes/salon.js';
 import { analytics } from './routes/analytics.js';
 import { memberPages } from './routes/member-pages.js';
+import { sequences } from './routes/sequences.js';
 
 export type Env = {
   Bindings: {
@@ -90,6 +92,7 @@ app.route('/', forms);
 app.route('/', salon);
 app.route('/', analytics);
 app.route('/', memberPages);
+app.route('/', sequences);
 
 // 404 fallback
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));
@@ -106,6 +109,7 @@ async function scheduled(
     processStepDeliveries(env.DB, lineClient),
     processScheduledBroadcasts(env.DB, lineClient),
     processReminderDeliveries(env.DB, lineClient),
+    processSequenceDeliveries(env.DB, lineClient),
     checkAccountHealth(env.DB),
     refreshExpiringTokens(env.DB),
   ]);

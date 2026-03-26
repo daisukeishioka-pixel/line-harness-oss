@@ -15,6 +15,7 @@ import {
 } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { buildMessage } from '../services/step-delivery.js';
+import { startSequence, stopSequence, resumeSequence } from '../services/sequence-delivery.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -47,7 +48,7 @@ webhook.post('/webhook', async (c) => {
   const processingPromise = (async () => {
     for (const event of body.events) {
       try {
-        await handleEvent(db, lineClient, event, lineAccessToken);
+        await handleEvent(db, lineClient, event, lineAccessToken, { DB: c.env.DB, LINE_CHANNEL_ACCESS_TOKEN: c.env.LINE_CHANNEL_ACCESS_TOKEN });
       } catch (err) {
         console.error('Error handling webhook event:', err);
       }
@@ -64,6 +65,7 @@ async function handleEvent(
   lineClient: LineClient,
   event: WebhookEvent,
   lineAccessToken: string,
+  env: { DB: D1Database; LINE_CHANNEL_ACCESS_TOKEN: string },
 ): Promise<void> {
   if (event.type === 'follow') {
     const userId =
@@ -179,6 +181,13 @@ async function handleEvent(
       console.error('Failed to send welcome message:', err);
     }
 
+    // 7日間チャレンジ シーケンス開始
+    try {
+      await startSequence(db, lineClient, userId);
+    } catch (err) {
+      console.error('Failed to start sequence for', userId, err);
+    }
+
     // イベントバス発火: friend_add
     await fireEvent(db, 'friend_add', { friendId: friend.id, eventData: { displayName: friend.display_name } }, lineAccessToken);
     return;
@@ -205,6 +214,35 @@ async function handleEvent(
     const incomingText = textMessage.text;
     const now = jstNow();
     const logId = crypto.randomUUID();
+
+    // ステップ配信の停止/再開コマンド
+    if (incomingText.trim() === '停止') {
+      const stopped = await stopSequence(db, userId);
+      if (stopped) {
+        try {
+          await lineClient.pushMessage(userId, [{
+            type: 'text',
+            text: 'チャレンジの配信を停止しました。\n再開をご希望の場合は「再開」とメッセージしてください。',
+          }]);
+        } catch (err) {
+          console.error('Failed to send stop confirmation:', err);
+        }
+      }
+    }
+
+    if (incomingText.trim() === '再開') {
+      const resumed = await resumeSequence(db, userId);
+      if (resumed) {
+        try {
+          await lineClient.pushMessage(userId, [{
+            type: 'text',
+            text: 'チャレンジの配信を再開しました！\n次の配信は今晩20時にお届けします💪',
+          }]);
+        } catch (err) {
+          console.error('Failed to send resume confirmation:', err);
+        }
+      }
+    }
 
     // 受信メッセージをログに記録
     await db
