@@ -669,6 +669,12 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
             .run();
         }
 
+        // 自動タグ付与: 有料会員タグ追加 + 解約済みタグ削除
+        try {
+          await db.prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, 'tag-paid-member', ?)`).bind(friendId, now).run();
+          await db.prepare(`DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = 'tag-churned'`).bind(friendId).run();
+        } catch { /* タグ付与失敗は非致命的 */ }
+
         // スコアリング
         const { applyScoring } = await import('@line-crm/db');
         await applyScoring(db, friendId, 'purchase');
@@ -807,6 +813,12 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
       await addTag(db, friendId, 'subscription_cancelled');
       await removeTag(db, friendId, 'salon_member');
       await removeTag(db, friendId, 'subscription_paused');
+
+      // 自動タグ付与: 解約済みタグ追加 + 有料会員タグ削除
+      try {
+        await db.prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, 'tag-churned', ?)`).bind(friendId, now).run();
+        await db.prepare(`DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = 'tag-paid-member'`).bind(friendId).run();
+      } catch { /* タグ付与失敗は非致命的 */ }
 
       // イベントバスに発火
       const { fireEvent } = await import('../services/event-bus.js');

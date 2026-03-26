@@ -39,6 +39,7 @@ import { memberPages } from './routes/member-pages.js';
 import { sequences } from './routes/sequences.js';
 import { trackingSources } from './routes/tracking-sources.js';
 import { csvExport } from './routes/csv-export.js';
+import { autoReplies } from './routes/auto-replies.js';
 
 export type Env = {
   Bindings: {
@@ -97,6 +98,7 @@ app.route('/', memberPages);
 app.route('/', sequences);
 app.route('/', trackingSources);
 app.route('/', csvExport);
+app.route('/', autoReplies);
 
 // 404 fallback
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));

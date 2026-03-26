@@ -1,4 +1,5 @@
 import type { LineClient } from '@line-crm/line-sdk';
+import { autoAddTag, getFriendIdByLineUserId } from './auto-tagging.js';
 
 /**
  * ステップ配信エンジン — 7日間チャレンジ等のシーケンス配信を処理
@@ -128,6 +129,18 @@ async function processOneSequence(
       .prepare('UPDATE user_sequences SET current_step = ?, last_sent_at = datetime(?) WHERE id = ?')
       .bind(nextMsg.step_number, 'now', seq.id)
       .run();
+
+    // タグ自動付与: Day 7 配信成功 → 「チャレンジ完走」タグ
+    if (nextMsg.step_number === 7) {
+      try {
+        const friendId = await getFriendIdByLineUserId(db, seq.line_user_id);
+        if (friendId) {
+          await autoAddTag(db, friendId, 'tag-challenge-completed');
+        }
+      } catch (err) {
+        console.error('Failed to add challenge-completed tag:', err);
+      }
+    }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to send sequence message to ${seq.line_user_id}:`, errMsg);

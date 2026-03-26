@@ -16,6 +16,7 @@ import {
 import { fireEvent } from '../services/event-bus.js';
 import { buildMessage } from '../services/step-delivery.js';
 import { startSequence, stopSequence, resumeSequence } from '../services/sequence-delivery.js';
+import { autoAddTag, autoRemoveTag, getSourceTagId } from '../services/auto-tagging.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -181,9 +182,16 @@ async function handleEvent(
       console.error('Failed to send welcome message:', err);
     }
 
-    // 流入経路マッチング
+    // 流入経路マッチング & ソースタグ付与
     try {
       await matchTrackingSource(db, userId);
+      // source特定後にタグ付与
+      const friendSource = await db
+        .prepare('SELECT source FROM friends WHERE line_user_id = ?')
+        .bind(userId)
+        .first<{ source: string | null }>();
+      const sourceTagId = getSourceTagId(friendSource?.source || 'direct');
+      await autoAddTag(db, friend.id, sourceTagId);
     } catch (err) {
       console.error('Failed to match tracking source for', userId, err);
     }
@@ -234,6 +242,12 @@ async function handleEvent(
         } catch (err) {
           console.error('Failed to send stop confirmation:', err);
         }
+        // タグ自動付与: 配信停止
+        try {
+          await autoAddTag(db, friend.id, 'tag-challenge-stopped');
+        } catch (err) {
+          console.error('Failed to add challenge-stopped tag:', err);
+        }
       }
     }
 
@@ -247,6 +261,12 @@ async function handleEvent(
           }]);
         } catch (err) {
           console.error('Failed to send resume confirmation:', err);
+        }
+        // タグ自動削除: 配信停止タグを外す
+        try {
+          await autoRemoveTag(db, friend.id, 'tag-challenge-stopped');
+        } catch (err) {
+          console.error('Failed to remove challenge-stopped tag:', err);
         }
       }
     }
