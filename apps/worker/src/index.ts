@@ -7,6 +7,7 @@ import { processReminderDeliveries } from './services/reminder-delivery.js';
 import { checkAccountHealth } from './services/ban-monitor.js';
 import { refreshExpiringTokens } from './services/token-refresh.js';
 import { processSequenceDeliveries } from './services/sequence-delivery.js';
+import { sendDailySummary } from './services/email-notification.js';
 import { authMiddleware } from './middleware/auth.js';
 import { webhook } from './routes/webhook.js';
 import { friends } from './routes/friends.js';
@@ -54,6 +55,7 @@ export type Env = {
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     RICH_MENU_MEMBER_ID?: string;
+    RESEND_API_KEY?: string;
   };
 };
 
@@ -115,10 +117,23 @@ async function scheduled(
     processStepDeliveries(env.DB, lineClient),
     processScheduledBroadcasts(env.DB, lineClient),
     processReminderDeliveries(env.DB, lineClient),
-    processSequenceDeliveries(env.DB, lineClient),
+    processSequenceDeliveries(env.DB, lineClient, env.RESEND_API_KEY),
     checkAccountHealth(env.DB),
     refreshExpiringTokens(env.DB),
   ]);
+
+  // 日次サマリー: 21:00 JST（UTC 12:00）に1回だけ送信
+  if (env.RESEND_API_KEY) {
+    const now = new Date();
+    const jstHour = (now.getUTCHours() + 9) % 24;
+    if (jstHour === 21 && now.getUTCMinutes() < 5) {
+      try {
+        await sendDailySummary(env.RESEND_API_KEY, env.DB);
+      } catch (e) {
+        console.error('Failed to send daily summary:', e);
+      }
+    }
+  }
 }
 
 export default {

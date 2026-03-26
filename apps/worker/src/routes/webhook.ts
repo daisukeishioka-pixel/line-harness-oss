@@ -17,6 +17,7 @@ import { fireEvent } from '../services/event-bus.js';
 import { buildMessage } from '../services/step-delivery.js';
 import { startSequence, stopSequence, resumeSequence } from '../services/sequence-delivery.js';
 import { autoAddTag, autoRemoveTag, getSourceTagId } from '../services/auto-tagging.js';
+import { notifyNewFriend, notifyUnmatchedMessage } from '../services/email-notification.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -49,7 +50,7 @@ webhook.post('/webhook', async (c) => {
   const processingPromise = (async () => {
     for (const event of body.events) {
       try {
-        await handleEvent(db, lineClient, event, lineAccessToken, { DB: c.env.DB, LINE_CHANNEL_ACCESS_TOKEN: c.env.LINE_CHANNEL_ACCESS_TOKEN });
+        await handleEvent(db, lineClient, event, lineAccessToken, { DB: c.env.DB, LINE_CHANNEL_ACCESS_TOKEN: c.env.LINE_CHANNEL_ACCESS_TOKEN, RESEND_API_KEY: (c.env as unknown as Record<string, string | undefined>).RESEND_API_KEY });
       } catch (err) {
         console.error('Error handling webhook event:', err);
       }
@@ -66,7 +67,7 @@ async function handleEvent(
   lineClient: LineClient,
   event: WebhookEvent,
   lineAccessToken: string,
-  env: { DB: D1Database; LINE_CHANNEL_ACCESS_TOKEN: string },
+  env: { DB: D1Database; LINE_CHANNEL_ACCESS_TOKEN: string; RESEND_API_KEY?: string },
 ): Promise<void> {
   if (event.type === 'follow') {
     const userId =
@@ -201,6 +202,14 @@ async function handleEvent(
       await startSequence(db, lineClient, userId);
     } catch (err) {
       console.error('Failed to start sequence for', userId, err);
+    }
+
+    // メール通知: 新規友だち追加
+    if (env.RESEND_API_KEY) {
+      try {
+        const src = await db.prepare('SELECT source FROM friends WHERE line_user_id = ?').bind(userId).first<{ source: string | null }>();
+        await notifyNewFriend(env.RESEND_API_KEY, profile?.displayName ?? null, src?.source ?? null);
+      } catch (e) { console.error('Email notify (new friend) failed:', e); }
     }
 
     // イベントバス発火: friend_add
@@ -342,6 +351,13 @@ async function handleEvent(
         matched = true;
         break;
       }
+    }
+
+    // 自動応答にマッチせず、停止/再開でもない場合 → メール通知
+    if (!matched && incomingText.trim() !== '停止' && incomingText.trim() !== '再開' && env.RESEND_API_KEY) {
+      try {
+        await notifyUnmatchedMessage(env.RESEND_API_KEY, friend.display_name ?? null, incomingText);
+      } catch (e) { console.error('Email notify (unmatched) failed:', e); }
     }
 
     // イベントバス発火: message_received

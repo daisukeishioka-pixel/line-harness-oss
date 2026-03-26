@@ -1,5 +1,6 @@
 import type { LineClient } from '@line-crm/line-sdk';
 import { autoAddTag, getFriendIdByLineUserId } from './auto-tagging.js';
+import { notifyChallengeComplete } from './email-notification.js';
 
 /**
  * ステップ配信エンジン — 7日間チャレンジ等のシーケンス配信を処理
@@ -8,6 +9,7 @@ import { autoAddTag, getFriendIdByLineUserId } from './auto-tagging.js';
 export async function processSequenceDeliveries(
   db: D1Database,
   lineClient: LineClient,
+  resendApiKey?: string,
 ): Promise<void> {
   // アクティブなシーケンスを取得
   const activeSequences = await db
@@ -34,7 +36,7 @@ export async function processSequenceDeliveries(
 
   for (const seq of activeSequences.results) {
     try {
-      await processOneSequence(db, lineClient, seq, now);
+      await processOneSequence(db, lineClient, seq, now, resendApiKey);
     } catch (err) {
       console.error(`Error processing sequence ${seq.id}:`, err);
     }
@@ -53,6 +55,7 @@ async function processOneSequence(
     last_sent_at: string | null;
   },
   now: Date,
+  resendApiKey?: string,
 ): Promise<void> {
   // 次に送るべきメッセージを取得
   const nextMsg = await db
@@ -130,7 +133,7 @@ async function processOneSequence(
       .bind(nextMsg.step_number, 'now', seq.id)
       .run();
 
-    // タグ自動付与: Day 7 配信成功 → 「チャレンジ完走」タグ
+    // タグ自動付与: Day 7 配信成功 → 「チャレンジ完走」タグ + メール通知
     if (nextMsg.step_number === 7) {
       try {
         const friendId = await getFriendIdByLineUserId(db, seq.line_user_id);
@@ -139,6 +142,12 @@ async function processOneSequence(
         }
       } catch (err) {
         console.error('Failed to add challenge-completed tag:', err);
+      }
+      if (resendApiKey) {
+        try {
+          const f = await db.prepare('SELECT display_name FROM friends WHERE line_user_id = ?').bind(seq.line_user_id).first<{ display_name: string | null }>();
+          await notifyChallengeComplete(resendApiKey, f?.display_name ?? null);
+        } catch (e) { console.error('Email notify (challenge complete) failed:', e); }
       }
     }
   } catch (error) {

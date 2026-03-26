@@ -9,6 +9,7 @@ import {
 } from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
 import type { Env } from '../index.js';
+import { notifyNewPayment, notifyChurn, notifyPaymentFailed } from '../services/email-notification.js';
 
 const stripe = new Hono<Env>();
 
@@ -699,6 +700,15 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
             `整体卒業サロンへようこそ！🎉\n\nメンバーシップの登録が完了しました。\n月額 2,980円（税込）で毎月自動更新されます。\n\nマイページからコンテンツやLive配信スケジュールをご確認いただけます。`,
           );
         }
+
+        // メール通知: 有料会員入会
+        const resendKey = (c.env as unknown as Record<string, string | undefined>).RESEND_API_KEY;
+        if (resendKey) {
+          try {
+            const dn = friendForNotify ? await db.prepare('SELECT display_name FROM friends WHERE id = ?').bind(friendId).first<{ display_name: string | null }>() : null;
+            await notifyNewPayment(resendKey, dn?.display_name ?? null, 2980);
+          } catch (e) { console.error('Email notify (payment) failed:', e); }
+        }
       } else if (subscriptionStatus === 'incomplete') {
         // LINE通知: 口座振替 入金待ち
         const friendForNotify = await db
@@ -840,6 +850,15 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
           `整体卒業サロンのメンバーシップが終了しました。\n\nご利用いただきありがとうございました。再度ご登録いただく場合は、マイページからお手続きいただけます。`,
         );
       }
+
+      // メール通知: 会員解約
+      const resendKeyChurn = (c.env as unknown as Record<string, string | undefined>).RESEND_API_KEY;
+      if (resendKeyChurn) {
+        try {
+          const dn = await db.prepare('SELECT display_name FROM friends WHERE id = ?').bind(friendId).first<{ display_name: string | null }>();
+          await notifyChurn(resendKeyChurn, dn?.display_name ?? null);
+        } catch (e) { console.error('Email notify (churn) failed:', e); }
+      }
     }
 
     // ========== invoice.payment_failed ==========
@@ -859,6 +878,15 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
           .prepare(`INSERT OR IGNORE INTO friend_tags (friend_id, tag_id, assigned_at) VALUES (?, ?, ?)`)
           .bind(friendId, failedTag.id, now)
           .run();
+      }
+
+      // メール通知: 決済失敗
+      const resendKeyFail = (c.env as unknown as Record<string, string | undefined>).RESEND_API_KEY;
+      if (resendKeyFail) {
+        try {
+          const dn = await db.prepare('SELECT display_name FROM friends WHERE id = ?').bind(friendId).first<{ display_name: string | null }>();
+          await notifyPaymentFailed(resendKeyFail, dn?.display_name ?? null, 'Invoice payment failed');
+        } catch (e) { console.error('Email notify (payment failed):', e); }
       }
     }
 
