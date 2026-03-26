@@ -452,7 +452,7 @@ stripe.post('/api/membership/:friendId/cancel', async (c) => {
     if (!friend?.subscription_id) return c.json({ success: false, error: 'No subscription found' }, 404);
 
     const status = friend.subscription_status;
-    if (status !== 'active' && status !== 'paused') {
+    if (status !== 'active' && status !== 'paused' && status !== 'cancel_scheduled') {
       return c.json({ success: false, error: 'Subscription cannot be cancelled' }, 400);
     }
 
