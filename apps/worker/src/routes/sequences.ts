@@ -68,4 +68,56 @@ sequences.get('/api/admin/step-messages', async (c) => {
   return c.json({ success: true, data: results.results });
 });
 
+// PUT /api/admin/step-messages/:id — ステップメッセージの更新
+sequences.put('/api/admin/step-messages/:id', async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const body = await c.req.json<{ content?: string; delay_hours?: number; is_active?: number }>();
+
+  // 既存レコード確認
+  const existing = await db
+    .prepare('SELECT id FROM step_messages WHERE id = ?')
+    .bind(id)
+    .first();
+
+  if (!existing) {
+    return c.json({ success: false, error: 'Step message not found' }, 404);
+  }
+
+  const updates: string[] = [];
+  const values: (string | number)[] = [];
+
+  if (body.content !== undefined) {
+    updates.push('content = ?');
+    values.push(body.content);
+  }
+  if (body.delay_hours !== undefined) {
+    updates.push('delay_hours = ?');
+    values.push(body.delay_hours);
+  }
+  if (body.is_active !== undefined) {
+    updates.push('is_active = ?');
+    values.push(body.is_active);
+  }
+
+  if (updates.length === 0) {
+    return c.json({ success: false, error: 'No fields to update' }, 400);
+  }
+
+  updates.push("updated_at = datetime('now')");
+  values.push(Number(id));
+
+  await db
+    .prepare(`UPDATE step_messages SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
+
+  const updated = await db
+    .prepare('SELECT * FROM step_messages WHERE id = ?')
+    .bind(id)
+    .first();
+
+  return c.json({ success: true, data: updated });
+});
+
 export { sequences };

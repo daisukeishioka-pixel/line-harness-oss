@@ -470,6 +470,27 @@ export const api = {
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/contents/${id}`, { method: 'DELETE' }),
   },
+  stepSequences: {
+    stepMessages: (sequenceName?: string) =>
+      fetchApi<ApiResponse<{ id: number; sequence_name: string; step_number: number; delay_hours: number; message_type: string; content: string; is_active: number; condition_check: string | null; created_at: string; updated_at: string }[]>>(
+        '/api/admin/step-messages' + (sequenceName ? '?' + new URLSearchParams({ sequence_name: sequenceName }) : ''),
+      ),
+    updateStepMessage: (id: number, data: { content?: string; delay_hours?: number; is_active?: number }) =>
+      fetchApi<ApiResponse<unknown>>(`/api/admin/step-messages/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    sequences: (status?: string) =>
+      fetchApi<ApiResponse<{ id: number; line_user_id: string; sequence_name: string; current_step: number; status: string; started_at: string; last_sent_at: string | null; completed_at: string | null; created_at: string; delivery_count: number }[]>>(
+        '/api/admin/sequences' + (status ? '?' + new URLSearchParams({ status }) : ''),
+      ),
+    sequenceDetail: (lineUserId: string) =>
+      fetchApi<ApiResponse<{ sequences: unknown[]; delivery_logs: unknown[] }>>(`/api/admin/sequences/${lineUserId}`),
+    deliveryLogs: (limit?: number) =>
+      fetchApi<ApiResponse<{ id: number; line_user_id: string; sequence_name: string; step_number: number; status: string; error_message: string | null; sent_at: string }[]>>(
+        '/api/admin/delivery-logs' + (limit ? '?' + new URLSearchParams({ limit: String(limit) }) : ''),
+      ),
+  },
   schedules: {
     list: () =>
       fetchApi<ApiResponse<{ id: string; title: string; description: string | null; scheduledAt: string; liveUrl: string | null; archiveUrl: string | null; isPublished: boolean; createdAt: string; updatedAt: string }[]>>(

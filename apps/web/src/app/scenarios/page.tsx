@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import type { Scenario, ScenarioTriggerType } from '@line-crm/shared'
 import { api } from '@/lib/api'
 import Header from '@/components/layout/header'
@@ -43,8 +44,22 @@ interface CreateFormState {
   isActive: boolean
 }
 
+// sequence_name → 表示名のマッピング
+const sequenceDisplayNames: Record<string, string> = {
+  '7day_challenge': '7日間 整体卒業チャレンジ',
+}
+
+interface SequenceCard {
+  sequenceName: string
+  displayName: string
+  stepCount: number
+  activeUsers: number
+  completedUsers: number
+}
+
 export default function ScenariosPage() {
   const [scenarios, setScenarios] = useState<ScenarioWithCount[]>([])
+  const [sequenceCards, setSequenceCards] = useState<SequenceCard[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -58,26 +73,50 @@ export default function ScenariosPage() {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  const loadScenarios = useCallback(async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const res = await api.scenarios.list()
-      if (res.success) {
-        setScenarios(res.data)
-      } else {
-        setError(res.error)
+      const [scenarioRes, stepsRes, activeRes, completedRes] = await Promise.all([
+        api.scenarios.list(),
+        api.stepSequences.stepMessages(),
+        api.stepSequences.sequences('active'),
+        api.stepSequences.sequences('completed'),
+      ])
+
+      if (scenarioRes.success) {
+        setScenarios(scenarioRes.data)
+      }
+
+      // ステップ配信エンジンのシーケンスをカード化
+      if (stepsRes.success && stepsRes.data) {
+        const grouped = new Map<string, number>()
+        for (const step of stepsRes.data) {
+          grouped.set(step.sequence_name, (grouped.get(step.sequence_name) || 0) + 1)
+        }
+
+        const cards: SequenceCard[] = []
+        for (const [name, count] of grouped) {
+          cards.push({
+            sequenceName: name,
+            displayName: sequenceDisplayNames[name] || name,
+            stepCount: count,
+            activeUsers: activeRes.success ? activeRes.data.filter(s => s.sequence_name === name).length : 0,
+            completedUsers: completedRes.success ? completedRes.data.filter(s => s.sequence_name === name).length : 0,
+          })
+        }
+        setSequenceCards(cards)
       }
     } catch {
-      setError('シナリオの読み込みに失敗しました。もう一度お試しください。')
+      setError('データの読み込みに失敗しました。もう一度お試しください。')
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    loadScenarios()
-  }, [loadScenarios])
+    loadData()
+  }, [loadData])
 
   const handleCreate = async () => {
     if (!form.name.trim()) {
@@ -97,7 +136,7 @@ export default function ScenariosPage() {
       if (res.success) {
         setShowCreate(false)
         setForm({ name: '', description: '', triggerType: 'friend_add', triggerTagId: '', isActive: true })
-        loadScenarios()
+        loadData()
       } else {
         setFormError(res.error)
       }
@@ -111,7 +150,7 @@ export default function ScenariosPage() {
   const handleToggleActive = async (id: string, current: boolean) => {
     try {
       await api.scenarios.update(id, { isActive: !current })
-      loadScenarios()
+      loadData()
     } catch {
       setError('ステータスの変更に失敗しました')
     }
@@ -120,7 +159,7 @@ export default function ScenariosPage() {
   const handleDelete = async (id: string) => {
     try {
       await api.scenarios.delete(id)
-      loadScenarios()
+      loadData()
     } catch {
       setError('削除に失敗しました')
     }
@@ -233,12 +272,66 @@ export default function ScenariosPage() {
           ))}
         </div>
       ) : (
-        <ScenarioList
-          scenarios={scenarios}
-          onToggleActive={handleToggleActive}
-          onDelete={handleDelete}
-          loading={loading}
-        />
+        <>
+          {/* ステップ配信エンジン (7日間チャレンジ等) */}
+          {sequenceCards.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">ステップ配信</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {sequenceCards.map((card) => (
+                  <Link
+                    key={card.sequenceName}
+                    href={`/scenarios/sequence?name=${encodeURIComponent(card.sequenceName)}`}
+                    className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-semibold text-gray-900 leading-tight">
+                        {card.displayName}
+                      </span>
+                      <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                        自動配信
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      友だち追加をトリガーに、7日間のセルフケアチャレンジを自動配信します。
+                    </p>
+                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <span>{card.stepCount}通</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span>配信中: {card.activeUsers}人</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>完了: {card.completedUsers}人</span>
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 従来のシナリオ */}
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">シナリオ</h2>
+            <ScenarioList
+              scenarios={scenarios}
+              onToggleActive={handleToggleActive}
+              onDelete={handleDelete}
+              loading={loading}
+            />
+          </div>
+        </>
       )}
 
       <CcPromptButton prompts={ccPrompts} />
