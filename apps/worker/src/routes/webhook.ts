@@ -181,6 +181,13 @@ async function handleEvent(
       console.error('Failed to send welcome message:', err);
     }
 
+    // 流入経路マッチング
+    try {
+      await matchTrackingSource(db, userId);
+    } catch (err) {
+      console.error('Failed to match tracking source for', userId, err);
+    }
+
     // 7日間チャレンジ シーケンス開始
     try {
       await startSequence(db, lineClient, userId);
@@ -324,6 +331,36 @@ async function handleEvent(
     }, lineAccessToken);
 
     return;
+  }
+}
+
+/**
+ * 流入経路マッチング: 直近5分以内のtracking_clicksで未マッチのクリックを紐付け
+ */
+async function matchTrackingSource(db: D1Database, lineUserId: string): Promise<void> {
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  const click = await db
+    .prepare(
+      'SELECT id, source FROM tracking_clicks WHERE matched_line_user_id IS NULL AND clicked_at > ? ORDER BY clicked_at DESC LIMIT 1',
+    )
+    .bind(fiveMinAgo)
+    .first<{ id: number; source: string }>();
+
+  if (click) {
+    await db
+      .prepare(
+        "UPDATE tracking_clicks SET matched_line_user_id = ?, matched_at = datetime('now') WHERE id = ?",
+      )
+      .bind(lineUserId, click.id)
+      .run();
+
+    await db
+      .prepare(
+        "UPDATE friends SET source = ?, source_matched_at = datetime('now') WHERE line_user_id = ?",
+      )
+      .bind(click.source, lineUserId)
+      .run();
   }
 }
 

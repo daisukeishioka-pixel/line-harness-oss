@@ -3,9 +3,24 @@
 import { useState, useEffect, useCallback } from 'react'
 import Header from '@/components/layout/header'
 
-import { fetchApi } from '@/lib/api'
+import { fetchApi, api } from '@/lib/api'
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787'
+
+// ── トラッキングURL プリセット ──
+const TRACKING_PRESETS = [
+  { source: 'lp', label: 'LP（ランディングページ）' },
+  { source: 'instagram', label: 'Instagram' },
+  { source: 'referral', label: '紹介' },
+  { source: 'meta-ads', label: 'Meta広告' },
+  { source: 'google', label: 'Google検索' },
+]
+
+type TrackingSourceStat = { source: string; count: number; converted: number }
+type TrackingClick = {
+  id: number; tracking_id: string; source: string; ip_address: string;
+  user_agent: string; clicked_at: string; matched_line_user_id: string | null; matched_at: string | null
+}
 
 interface RefRoute {
   refCode: string
@@ -41,12 +56,22 @@ export default function AttributionPage() {
   const [detail, setDetail] = useState<RefDetailData | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [trackingTab, setTrackingTab] = useState<'ref' | 'tracking'>('tracking')
+  const [trackingSources, setTrackingSources] = useState<TrackingSourceStat[]>([])
+  const [trackingClicks, setTrackingClicks] = useState<TrackingClick[]>([])
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
 
   const loadSummary = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetchApi<{ success: boolean; data: RefSummaryData }>('/api/analytics/ref-summary')
-      setSummary(res.data)
+      const [refRes, srcRes, clickRes] = await Promise.allSettled([
+        fetchApi<{ success: boolean; data: RefSummaryData }>('/api/analytics/ref-summary'),
+        api.phase2.trackingSources(),
+        api.phase2.trackingClicks(50),
+      ])
+      if (refRes.status === 'fulfilled') setSummary(refRes.value.data)
+      if (srcRes.status === 'fulfilled' && srcRes.value.success) setTrackingSources(srcRes.value.data)
+      if (clickRes.status === 'fulfilled' && clickRes.value.success) setTrackingClicks(clickRes.value.data)
     } catch {
       // silent
     }
@@ -86,12 +111,163 @@ export default function AttributionPage() {
     return new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
   }
 
+  const handleCopyUrl = async (source: string) => {
+    const url = `${WORKER_BASE}/track/${source}`
+    await navigator.clipboard.writeText(url)
+    setCopiedUrl(source)
+    setTimeout(() => setCopiedUrl(null), 2000)
+  }
+
+  const formatDateTime = (iso: string | null) => {
+    if (!iso) return '-'
+    try {
+      const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z')
+      return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+    } catch { return iso }
+  }
+
   return (
     <div>
       <Header
         title="流入経路分析"
-        description="ref コード別の友だち獲得・クリック実績"
+        description="トラッキングURL・refコード別の友だち獲得実績"
       />
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 mb-6">
+        {([
+          { key: 'tracking' as const, label: 'トラッキングURL' },
+          { key: 'ref' as const, label: 'refコード (従来)' },
+        ]).map(t => (
+          <button key={t.key} onClick={() => setTrackingTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${trackingTab === t.key ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── トラッキングURL タブ ── */}
+      {trackingTab === 'tracking' && (
+        <>
+          {/* トラッキングURL一覧 */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto mb-6">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">トラッキングURL一覧</h3>
+              <p className="text-xs text-gray-400 mt-1">友だち追加リンクの前にこのURLを経由させることで流入経路を自動記録します</p>
+            </div>
+            <table className="w-full min-w-[720px]">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">経路名</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">URL</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">クリック数</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">友だち追加数</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">CVR</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {TRACKING_PRESETS.map((preset) => {
+                  const stat = trackingSources.find(s => s.source === preset.source)
+                  const clicks = stat?.count ?? 0
+                  const converted = stat?.converted ?? 0
+                  const cvr = clicks > 0 ? Math.round((converted / clicks) * 100) : 0
+                  const url = `${WORKER_BASE}/track/${preset.source}`
+                  return (
+                    <tr key={preset.source} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{preset.label}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs font-mono text-gray-500 break-all">{url}</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">{clicks}</td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-green-600">{converted}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-600">{cvr}%</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => handleCopyUrl(preset.source)}
+                          className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors min-h-[44px] inline-flex items-center"
+                          style={copiedUrl === preset.source ? { color: '#06C755' } : { color: '#3b82f6' }}
+                        >
+                          {copiedUrl === preset.source ? 'コピー済!' : 'URLコピー'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {/* その他の経路（プリセット外） */}
+                {trackingSources
+                  .filter(s => !TRACKING_PRESETS.find(p => p.source === s.source))
+                  .map(s => {
+                    const cvr = s.count > 0 ? Math.round((s.converted / s.count) * 100) : 0
+                    const url = `${WORKER_BASE}/track/${s.source}`
+                    return (
+                      <tr key={s.source} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{s.source}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs font-mono text-gray-500 break-all">{url}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">{s.count}</td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-green-600">{s.converted}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">{cvr}%</td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => handleCopyUrl(s.source)}
+                            className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors min-h-[44px] inline-flex items-center"
+                            style={copiedUrl === s.source ? { color: '#06C755' } : { color: '#3b82f6' }}
+                          >
+                            {copiedUrl === s.source ? 'コピー済!' : 'URLコピー'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* クリックログ */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">クリックログ（最新50件）</h3>
+            </div>
+            <table className="w-full min-w-[600px]">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">経路</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">クリック日時</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">マッチ</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">LINE User ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {trackingClicks.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">クリックログはまだありません</td></tr>
+                ) : (
+                  trackingClicks.map((click) => (
+                    <tr key={click.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{click.source}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{formatDateTime(click.clicked_at)}</td>
+                      <td className="px-4 py-3">
+                        {click.matched_line_user_id ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">マッチ済</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">未マッチ</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-mono text-gray-500">
+                        {click.matched_line_user_id ? click.matched_line_user_id.substring(0, 16) + '...' : '-'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* ── refコード タブ (従来) ── */}
+      {trackingTab === 'ref' && <>
 
       {/* Summary cards */}
       {summary && (
@@ -197,6 +373,8 @@ export default function AttributionPage() {
           </table>
         </div>
       )}
+
+      </>}
     </div>
   )
 }

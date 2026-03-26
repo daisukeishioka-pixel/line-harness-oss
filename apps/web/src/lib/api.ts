@@ -470,6 +470,24 @@ export const api = {
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/contents/${id}`, { method: 'DELETE' }),
   },
+  phase2: {
+    overview: () =>
+      fetchApi<ApiResponse<{ total_friends: number; active_subscribers: number; churn_rate: number; conversion_rate: number; challenge_completion_rate: number }>>('/api/admin/analytics/overview'),
+    friendsTrend: (days?: number) =>
+      fetchApi<ApiResponse<{ date: string; count: number; cumulative: number }[]>>(
+        '/api/admin/analytics/friends-trend' + (days ? '?' + new URLSearchParams({ days: String(days) }) : ''),
+      ),
+    sourceBreakdown: () =>
+      fetchApi<ApiResponse<{ source: string; friends: number; subscribers: number }[]>>('/api/admin/analytics/source-breakdown'),
+    challengeFunnel: () =>
+      fetchApi<ApiResponse<{ step: number; sent: number; label: string }[]>>('/api/admin/analytics/challenge-funnel'),
+    trackingSources: () =>
+      fetchApi<ApiResponse<{ source: string; count: number; converted: number }[]>>('/api/admin/tracking/sources'),
+    trackingClicks: (limit?: number) =>
+      fetchApi<ApiResponse<{ id: number; tracking_id: string; source: string; ip_address: string; user_agent: string; clicked_at: string; matched_line_user_id: string | null; matched_at: string | null }[]>>(
+        '/api/admin/tracking/clicks' + (limit ? '?' + new URLSearchParams({ limit: String(limit) }) : ''),
+      ),
+  },
   stepSequences: {
     stepMessages: (sequenceName?: string) =>
       fetchApi<ApiResponse<{ id: number; sequence_name: string; step_number: number; delay_hours: number; message_type: string; content: string; is_active: number; condition_check: string | null; created_at: string; updated_at: string }[]>>(

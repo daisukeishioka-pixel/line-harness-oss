@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { fetchApi } from '@/lib/api'
+import { fetchApi, api } from '@/lib/api'
 import Header from '@/components/layout/header'
 
 type Last28Days = {
@@ -32,6 +32,18 @@ type MembersData = {
   paidConversionRate: number; avgRetentionMonths: number; avgLifetimeMonths: number
   cohorts: { cohort: string; total: number; retained: number[] }[]
 }
+
+type OverviewData = {
+  total_friends: number
+  active_subscribers: number
+  churn_rate: number
+  conversion_rate: number
+  challenge_completion_rate: number
+}
+
+type FriendsTrendItem = { date: string; count: number; cumulative: number }
+type SourceItem = { source: string; friends: number; subscribers: number }
+type FunnelItem = { step: number; sent: number; label: string }
 
 function formatYen(v: number) { return `¥${v.toLocaleString()}` }
 function formatMonth(m: string) { const [y, mo] = m.split('-'); return `${y}/${mo}` }
@@ -74,23 +86,53 @@ function ChangeIndicator({ value, suffix = '%' }: { value: number; suffix?: stri
   )
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  direct: '直接追加',
+  lp: 'LP',
+  instagram: 'Instagram',
+  referral: '紹介',
+  'meta-ads': 'Meta広告',
+  google: 'Google検索',
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787'
+
+function downloadCsv(path: string) {
+  const key = typeof window !== 'undefined'
+    ? (localStorage.getItem('lh_api_key') || process.env.NEXT_PUBLIC_API_KEY || '')
+    : ''
+  window.open(`${API_BASE}${path}?_auth=${encodeURIComponent(key)}`, '_blank')
+}
+
 export default function AnalyticsPage() {
   const [revenue, setRevenue] = useState<RevenueData | null>(null)
   const [members, setMembers] = useState<MembersData | null>(null)
+  const [overview, setOverview] = useState<OverviewData | null>(null)
+  const [friendsTrend, setFriendsTrend] = useState<FriendsTrendItem[]>([])
+  const [sources, setSources] = useState<SourceItem[]>([])
+  const [funnel, setFunnel] = useState<FunnelItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'revenue' | 'members'>('revenue')
+  const [tab, setTab] = useState<'overview' | 'revenue' | 'members'>('overview')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [revRes, memRes] = await Promise.allSettled([
+      const [revRes, memRes, ovRes, trendRes, srcRes, funRes] = await Promise.allSettled([
         fetchApi<{ success: boolean; data: RevenueData }>('/api/analytics/revenue'),
         fetchApi<{ success: boolean; data: MembersData }>('/api/analytics/members'),
+        api.phase2.overview(),
+        api.phase2.friendsTrend(30),
+        api.phase2.sourceBreakdown(),
+        api.phase2.challengeFunnel(),
       ])
       if (revRes.status === 'fulfilled' && revRes.value.success) setRevenue(revRes.value.data)
       if (memRes.status === 'fulfilled' && memRes.value.success) setMembers(memRes.value.data)
+      if (ovRes.status === 'fulfilled' && ovRes.value.success) setOverview(ovRes.value.data)
+      if (trendRes.status === 'fulfilled' && trendRes.value.success) setFriendsTrend(trendRes.value.data)
+      if (srcRes.status === 'fulfilled' && srcRes.value.success) setSources(srcRes.value.data)
+      if (funRes.status === 'fulfilled' && funRes.value.success) setFunnel(funRes.value.data)
     } catch {
       setError('データの取得に失敗しました')
     } finally {
@@ -99,6 +141,27 @@ export default function AnalyticsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleCsvDownload = async (type: 'friends' | 'delivery-logs' | 'payments') => {
+    try {
+      const key = typeof window !== 'undefined'
+        ? (localStorage.getItem('lh_api_key') || process.env.NEXT_PUBLIC_API_KEY || '')
+        : ''
+      const res = await fetch(`${API_BASE}/api/admin/export/${type}.csv`, {
+        headers: { Authorization: `Bearer ${key}` },
+      })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${type}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('CSVダウンロードに失敗しました')
+    }
+  }
 
   if (loading) {
     return (
@@ -122,13 +185,188 @@ export default function AnalyticsPage() {
       {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       <div className="flex border-b border-gray-200 mb-6">
-        {(['revenue', 'members'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-            {t === 'revenue' ? '売上・収益指標' : '会員獲得・維持指標'}
+        {([
+          { key: 'overview' as const, label: '概要' },
+          { key: 'revenue' as const, label: '売上・収益指標' },
+          { key: 'members' as const, label: '会員獲得・維持指標' },
+        ]).map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t.key ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {t.label}
           </button>
         ))}
       </div>
+
+      {/* ===== 概要タブ ===== */}
+      {tab === 'overview' && overview && (
+        <>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-1">総友だち数</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.total_friends}</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-1">有料会員数</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.active_subscribers}</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-1">CVR</p>
+              <p className="text-2xl font-bold text-blue-600">{overview.conversion_rate}%</p>
+              <p className="text-xs text-gray-400 mt-1">友だち→有料</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-1">チャーンレート</p>
+              <p className="text-2xl font-bold" style={{ color: overview.churn_rate > 10 ? '#dc2626' : overview.churn_rate > 5 ? '#d97706' : '#059669' }}>
+                {overview.churn_rate}%
+              </p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 mb-1">チャレンジ完走率</p>
+              <p className="text-2xl font-bold" style={{ color: '#06C755' }}>{overview.challenge_completion_rate}%</p>
+            </div>
+          </div>
+
+          {/* 友だち数推移 */}
+          {friendsTrend.length > 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">友だち数推移（過去30日）</h3>
+              <div className="flex items-end gap-[2px] h-32">
+                {friendsTrend.map((d, i) => {
+                  const maxCount = Math.max(...friendsTrend.map(t => t.count), 1)
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative">
+                      <div
+                        className="w-full rounded-t transition-all"
+                        style={{
+                          height: `${Math.max((d.count / maxCount) * 100, d.count > 0 ? 4 : 0)}%`,
+                          backgroundColor: '#06C755',
+                        }}
+                      />
+                      <div className="hidden group-hover:block absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                        {d.date}: +{d.count} (累計 {d.cumulative})
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex justify-between text-[9px] text-gray-400 mt-1">
+                <span>{friendsTrend[0]?.date}</span>
+                <span>{friendsTrend[friendsTrend.length - 1]?.date}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* 流入経路 */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">流入経路別</h3>
+              {sources.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">データがまだありません</p>
+              ) : (
+                <div className="space-y-3">
+                  {sources.map((s) => {
+                    const totalFriends = sources.reduce((sum, x) => sum + x.friends, 0)
+                    const pct = totalFriends > 0 ? Math.round((s.friends / totalFriends) * 100) : 0
+                    const cvr = s.friends > 0 ? Math.round((s.subscribers / s.friends) * 100) : 0
+                    return (
+                      <div key={s.source}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-600">{SOURCE_LABELS[s.source] || s.source}</span>
+                          <span className="font-semibold">{s.friends}人 <span className="text-gray-400 font-normal">({pct}%)</span></span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: '#06C755' }} />
+                          </div>
+                          <span className="text-xs text-gray-500 shrink-0">CVR {cvr}%</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 7日間チャレンジ ファネル */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">7日間チャレンジ ファネル</h3>
+              {funnel.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">配信データがまだありません</p>
+              ) : (
+                <div className="space-y-2">
+                  {funnel.map((f, i) => {
+                    const maxSent = Math.max(...funnel.map(x => x.sent), 1)
+                    const pct = Math.round((f.sent / maxSent) * 100)
+                    const dropRate = i > 0 && funnel[i - 1].sent > 0
+                      ? Math.round(((funnel[i - 1].sent - f.sent) / funnel[i - 1].sent) * 100)
+                      : 0
+                    return (
+                      <div key={f.step}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-gray-600">{f.label}</span>
+                          <span className="font-semibold">
+                            {f.sent}人
+                            {i > 0 && dropRate > 0 && (
+                              <span className="text-red-500 ml-1">(-{dropRate}%)</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: f.step <= 7 ? '#06C755' : '#3b82f6',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CSVダウンロード */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-800 mb-4">CSVエクスポート</h3>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => handleCsvDownload('friends')}
+                className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 flex items-center gap-2"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                友だち一覧CSV
+              </button>
+              <button
+                onClick={() => handleCsvDownload('delivery-logs')}
+                className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 flex items-center gap-2"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                配信ログCSV
+              </button>
+              <button
+                onClick={() => handleCsvDownload('payments')}
+                className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 flex items-center gap-2"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                決済データCSV
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ===== 売上・収益指標 ===== */}
       {tab === 'revenue' && revenue && (

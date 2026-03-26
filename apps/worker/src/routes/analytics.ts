@@ -367,4 +367,162 @@ analytics.get('/api/analytics/members', async (c) => {
   }
 });
 
+// ========== Phase 2: 概要メトリクス・友だち推移・流入経路・ファネル ==========
+
+analytics.get('/api/admin/analytics/overview', async (c) => {
+  try {
+    const db = c.env.DB;
+
+    const totalFriendsRow = await db
+      .prepare('SELECT COUNT(*) as cnt FROM friends')
+      .first<{ cnt: number }>();
+    const totalFriends = totalFriendsRow?.cnt ?? 0;
+
+    const activeSubsRow = await db
+      .prepare(`SELECT COUNT(*) as cnt FROM friends WHERE subscription_status IN ('active', 'trialing')`)
+      .first<{ cnt: number }>();
+    const activeSubscribers = activeSubsRow?.cnt ?? 0;
+
+    const conversionRate = totalFriends > 0
+      ? Math.round((activeSubscribers / totalFriends) * 10000) / 100
+      : 0;
+
+    // チャーンレート（直近30日）
+    const days30Ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const churnedRow = await db
+      .prepare(`SELECT COUNT(*) as cnt FROM stripe_events WHERE event_type = 'customer.subscription.deleted' AND processed_at >= ?`)
+      .bind(days30Ago)
+      .first<{ cnt: number }>();
+    const churnedCount = churnedRow?.cnt ?? 0;
+    const startActive = activeSubscribers + churnedCount;
+    const churnRate = startActive > 0
+      ? Math.round((churnedCount / startActive) * 10000) / 100
+      : 0;
+
+    // チャレンジ完走率
+    const totalSeqRow = await db
+      .prepare('SELECT COUNT(*) as cnt FROM user_sequences')
+      .first<{ cnt: number }>();
+    const completedSeqRow = await db
+      .prepare(`SELECT COUNT(*) as cnt FROM user_sequences WHERE status = 'completed'`)
+      .first<{ cnt: number }>();
+    const totalSeq = totalSeqRow?.cnt ?? 0;
+    const challengeCompletionRate = totalSeq > 0
+      ? Math.round(((completedSeqRow?.cnt ?? 0) / totalSeq) * 10000) / 100
+      : 0;
+
+    return c.json({
+      success: true,
+      data: {
+        total_friends: totalFriends,
+        active_subscribers: activeSubscribers,
+        churn_rate: churnRate,
+        conversion_rate: conversionRate,
+        challenge_completion_rate: challengeCompletionRate,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/admin/analytics/overview error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+analytics.get('/api/admin/analytics/friends-trend', async (c) => {
+  try {
+    const db = c.env.DB;
+    const days = parseInt(c.req.query('days') || '30', 10);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const dailyNew = await db
+      .prepare(
+        `SELECT DATE(created_at) as date, COUNT(*) as count
+         FROM friends
+         WHERE created_at > ?
+         GROUP BY DATE(created_at)
+         ORDER BY date ASC`,
+      )
+      .bind(since)
+      .all<{ date: string; count: number }>();
+
+    // 期間開始前の累計
+    const beforeRow = await db
+      .prepare('SELECT COUNT(*) as cnt FROM friends WHERE created_at <= ?')
+      .bind(since)
+      .first<{ cnt: number }>();
+    let cumulative = beforeRow?.cnt ?? 0;
+
+    const trend = dailyNew.results.map((d) => {
+      cumulative += d.count;
+      return { date: d.date, count: d.count, cumulative };
+    });
+
+    return c.json({ success: true, data: trend });
+  } catch (err) {
+    console.error('GET /api/admin/analytics/friends-trend error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+analytics.get('/api/admin/analytics/source-breakdown', async (c) => {
+  try {
+    const db = c.env.DB;
+
+    const results = await db
+      .prepare(
+        `SELECT
+          COALESCE(source, 'direct') as source,
+          COUNT(*) as friends,
+          SUM(CASE WHEN subscription_status IN ('active', 'trialing') THEN 1 ELSE 0 END) as subscribers
+        FROM friends
+        GROUP BY COALESCE(source, 'direct')
+        ORDER BY friends DESC`,
+      )
+      .all<{ source: string; friends: number; subscribers: number }>();
+
+    return c.json({ success: true, data: results.results });
+  } catch (err) {
+    console.error('GET /api/admin/analytics/source-breakdown error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+analytics.get('/api/admin/analytics/challenge-funnel', async (c) => {
+  try {
+    const db = c.env.DB;
+
+    const funnel = await db
+      .prepare(
+        `SELECT step_number, COUNT(*) as sent
+         FROM delivery_logs
+         WHERE sequence_name = '7day_challenge' AND status = 'sent'
+         GROUP BY step_number
+         ORDER BY step_number ASC`,
+      )
+      .all<{ step_number: number; sent: number }>();
+
+    const stepLabels: Record<number, string> = {
+      0: 'Day 0 (ウェルカム)',
+      1: 'Day 1',
+      2: 'Day 2',
+      3: 'Day 3',
+      4: 'Day 4',
+      5: 'Day 5',
+      6: 'Day 6',
+      7: 'Day 7 (卒業)',
+      10: 'Day 10 (フォロー)',
+    };
+
+    const data = funnel.results.map((f) => ({
+      step: f.step_number,
+      sent: f.sent,
+      label: stepLabels[f.step_number] || `Day ${f.step_number}`,
+    }));
+
+    return c.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /api/admin/analytics/challenge-funnel error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
 export { analytics };
