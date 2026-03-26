@@ -152,7 +152,14 @@ export default function FriendTable({ friends, allTags, onRefresh }: FriendTable
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {friend.tags.length > 0 ? (
-                        friend.tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
+                        <>
+                          {friend.tags.slice(0, 2).map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+                          {friend.tags.length > 2 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                              +{friend.tags.length - 2}
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <span className="text-xs text-gray-400">なし</span>
                       )}
