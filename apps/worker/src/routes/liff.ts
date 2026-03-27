@@ -977,6 +977,7 @@ initLiff().then(function() {
   if (isMember(s) || s === 'past_due') {
     var plc = document.getElementById('planCard'); plc.style.display = '';
     plc.innerHTML = '<p class="section-title">&#x1f4cb; プラン情報</p>' +
+      '<a href="https://liff.line.me/2009595752-X90IWgrz?page=mypage" class="btn btn-secondary" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">領収書を発行する</a>' +
       '<button class="btn btn-secondary" onclick="openPortal()">お支払い方法を変更する</button>';
   }
 

@@ -1298,7 +1298,8 @@ function renderMembershipPage(
       var h = '<p class="section-title">&#x1f4cb; プラン情報</p>';
       h += '<div class="info-row"><span class="info-label">ステータス</span><span class="info-value" style="color:'+info.color+'">'+info.label+'</span></div>';
       if (isMember(s) || s === 'past_due') { h += '<div class="info-row"><span class="info-label">プラン</span><span class="info-value">月額 2,980円</span></div>'; h += '<div class="info-row"><span class="info-label">次回請求日</span><span class="info-value">'+fmtDate(INIT.currentPeriodEnd)+'</span></div>'; }
-      h += '<button class="btn btn-secondary" style="margin-top:12px" onclick="openPortal()">お支払い方法を変更する</button>';
+      h += '<a href="https://liff.line.me/2009595752-X90IWgrz?page=mypage" class="btn btn-secondary" style="display:block;text-align:center;text-decoration:none;margin-top:12px;margin-bottom:8px">領収書を発行する</a>';
+      h += '<button class="btn btn-secondary" style="margin-top:0" onclick="openPortal()">お支払い方法を変更する</button>';
       document.getElementById('planInfo').innerHTML = h;
     }
     function loadInvoices() {
