@@ -106,7 +106,7 @@ export async function initMypage(): Promise<void> {
 
   container.innerHTML = `
     <div class="mypage">
-      <a href="https://liff.line.me/2009595752-X90IWgrz?page=membership" class="back-link">← マイページに戻る</a>
+      <a href="https://line-crm-worker.seitai-graduation.workers.dev/liff/mypage" class="back-link">← マイページに戻る</a>
 
       <div class="card mypage-header">
         <div class="profile">
