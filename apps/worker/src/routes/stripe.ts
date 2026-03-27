@@ -926,6 +926,74 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
   }
 });
 
+// ========== 決済履歴API（LIFF用） ==========
+
+stripe.get('/api/liff/payment-history/:lineUserId', async (c) => {
+  try {
+    const lineUserId = c.req.param('lineUserId');
+
+    // friendsテーブルからStripe顧客IDを取得
+    const friend = await c.env.DB.prepare(
+      'SELECT stripe_customer_id FROM friends WHERE line_user_id = ?',
+    ).bind(lineUserId).first<{ stripe_customer_id: string | null }>();
+
+    if (!friend?.stripe_customer_id) {
+      return c.json({ success: true, data: [] });
+    }
+
+    const stripeKey = (c.env as unknown as Record<string, string | undefined>).STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+      return c.json({ success: true, data: [] });
+    }
+
+    // Stripe APIでinvoice一覧を取得
+    const stripeRes = await fetch(
+      `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(friend.stripe_customer_id)}&limit=24&status=paid`,
+      {
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+        },
+      },
+    );
+
+    if (!stripeRes.ok) {
+      return c.json({ success: true, data: [] });
+    }
+
+    const stripeData = await stripeRes.json<{
+      data: Array<{
+        id: string;
+        amount_paid: number;
+        currency: string;
+        status: string;
+        hosted_invoice_url: string | null;
+        invoice_pdf: string | null;
+        period_start: number;
+        period_end: number;
+        created: number;
+        lines?: { data: Array<{ description?: string }> };
+      }>;
+    }>();
+
+    const invoices = stripeData.data.map((inv) => ({
+      id: inv.id,
+      amount: inv.amount_paid,
+      currency: inv.currency,
+      status: inv.status,
+      receipt_url: inv.hosted_invoice_url || inv.invoice_pdf,
+      period_start: inv.period_start,
+      period_end: inv.period_end,
+      created: inv.created,
+      description: inv.lines?.data?.[0]?.description || '月額プラン',
+    }));
+
+    return c.json({ success: true, data: invoices });
+  } catch (err) {
+    console.error('GET /api/liff/payment-history error:', err);
+    return c.json({ success: true, data: [] });
+  }
+});
+
 // ========== 会員マイページ HTML レンダリング ==========
 
 const DEFAULT_LIFF_ID_MYPAGE = '2009595752-X90IWgrz';

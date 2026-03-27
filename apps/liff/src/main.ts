@@ -17,6 +17,7 @@
 import { initBooking } from './booking.js';
 import { initForm } from './form.js';
 import { initMembership } from './membership.js';
+import { initMypage } from './mypage.js';
 
 declare const liff: {
   init(config: { liffId: string }): Promise<void>;
@@ -259,6 +260,8 @@ async function main() {
       await initForm(formId);
     } else if (page === 'membership') {
       await initMembership();
+    } else if (page === 'mypage') {
+      await initMypage();
     } else {
       await linkAndAddFlow();
     }
