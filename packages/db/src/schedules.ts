@@ -7,6 +7,7 @@ export interface Schedule {
   scheduled_at: string;
   live_url: string | null;
   archive_url: string | null;
+  thumbnail_url: string | null;
   is_published: number;
   created_at: string;
   updated_at: string;
@@ -45,16 +46,17 @@ export async function createSchedule(
     scheduledAt: string;
     liveUrl?: string | null;
     archiveUrl?: string | null;
+    thumbnailUrl?: string | null;
   },
 ): Promise<Schedule> {
   const id = crypto.randomUUID();
   const now = jstNow();
   await db
     .prepare(
-      `INSERT INTO schedules (id, title, description, scheduled_at, live_url, archive_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO schedules (id, title, description, scheduled_at, live_url, archive_url, thumbnail_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, data.title, data.description ?? null, data.scheduledAt, data.liveUrl ?? null, data.archiveUrl ?? null, now, now)
+    .bind(id, data.title, data.description ?? null, data.scheduledAt, data.liveUrl ?? null, data.archiveUrl ?? null, data.thumbnailUrl ?? null, now, now)
     .run();
   return (await getScheduleById(db, id))!;
 }
@@ -68,6 +70,7 @@ export async function updateSchedule(
     scheduledAt: string;
     liveUrl: string | null;
     archiveUrl: string | null;
+    thumbnailUrl: string | null;
     isPublished: boolean;
   }>,
 ): Promise<Schedule | null> {
@@ -79,6 +82,7 @@ export async function updateSchedule(
   if (data.scheduledAt !== undefined) { sets.push('scheduled_at = ?'); binds.push(data.scheduledAt); }
   if (data.liveUrl !== undefined) { sets.push('live_url = ?'); binds.push(data.liveUrl); }
   if (data.archiveUrl !== undefined) { sets.push('archive_url = ?'); binds.push(data.archiveUrl); }
+  if (data.thumbnailUrl !== undefined) { sets.push('thumbnail_url = ?'); binds.push(data.thumbnailUrl); }
   if (data.isPublished !== undefined) { sets.push('is_published = ?'); binds.push(data.isPublished ? 1 : 0); }
 
   if (sets.length === 0) return getScheduleById(db, id);

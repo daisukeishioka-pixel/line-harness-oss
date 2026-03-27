@@ -1,8 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchApi } from '@/lib/api'
 import Header from '@/components/layout/header'
+
+function extractYoutubeId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+  ]
+  for (const pattern of patterns) {
+    const match = url.match(pattern)
+    if (match) return match[1]
+  }
+  return null
+}
 
 type Content = {
   id: string
@@ -115,6 +126,17 @@ export default function ContentsPage() {
     await load()
   }
 
+  const thumbnailPreview = form.thumbnailUrl || null
+
+  const handleVideoUrlChange = (url: string) => {
+    const newForm = { ...form, videoUrl: url }
+    const videoId = extractYoutubeId(url)
+    if (videoId && !form.thumbnailUrl) {
+      newForm.thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+    }
+    setForm(newForm)
+  }
+
   const catLabel = (v: string) => CATEGORIES.find(c => c.value === v)?.label ?? v
 
   return (
@@ -161,11 +183,14 @@ export default function ContentsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">動画URL</label>
-                <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="YouTube / Vimeo URL" value={form.videoUrl} onChange={e => setForm({ ...form, videoUrl: e.target.value })} />
+                <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="YouTube / Vimeo URL" value={form.videoUrl} onChange={e => handleVideoUrlChange(e.target.value)} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">サムネイルURL</label>
                 <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={form.thumbnailUrl} onChange={e => setForm({ ...form, thumbnailUrl: e.target.value })} />
+                {thumbnailPreview && (
+                  <img src={thumbnailPreview} alt="" className="mt-2 max-w-[320px] w-full rounded-lg bg-gray-100" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} onLoad={e => { (e.target as HTMLImageElement).style.display = 'block' }} />
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

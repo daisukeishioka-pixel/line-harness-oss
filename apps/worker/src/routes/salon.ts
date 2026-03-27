@@ -280,6 +280,7 @@ salon.get('/api/schedules', async (c) => {
         scheduledAt: s.scheduled_at,
         liveUrl: s.live_url,
         archiveUrl: s.archive_url,
+        thumbnailUrl: s.thumbnail_url,
         isPublished: Boolean(s.is_published),
         createdAt: s.created_at,
         updatedAt: s.updated_at,
@@ -299,6 +300,7 @@ salon.post('/api/schedules', async (c) => {
       scheduledAt: string;
       liveUrl?: string | null;
       archiveUrl?: string | null;
+      thumbnailUrl?: string | null;
     }>();
 
     if (!body.title || !body.scheduledAt) {
