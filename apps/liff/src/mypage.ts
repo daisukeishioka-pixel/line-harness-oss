@@ -106,7 +106,7 @@ export async function initMypage(): Promise<void> {
 
   container.innerHTML = `
     <div class="mypage">
-      <a href="https://line-crm-worker.seitai-graduation.workers.dev/liff/mypage" class="back-link">← マイページに戻る</a>
+      <a href="#" class="back-link" id="backBtn">← マイページに戻る</a>
 
       <div class="card mypage-header">
         <div class="profile">
@@ -126,6 +126,11 @@ export async function initMypage(): Promise<void> {
       </section>
     </div>
   `;
+
+  document.getElementById('backBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    try { liff.closeWindow(); } catch { window.close(); }
+  });
 
   await loadPaymentHistory(profile.userId);
 }

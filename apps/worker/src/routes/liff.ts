@@ -88,12 +88,11 @@ function memberPageCSS(): string {
 }
 
 function bottomNavHTML(activePage: string, workersUrl: string): string {
-  const LIFF_MYPAGE_URL = 'https://liff.line.me/2009595752-X90IWgrz?page=membership';
   const pages = [
     { key: 'home', label: 'ホーム', href: `${workersUrl}/liff/home`, icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { key: 'live', label: 'Live', href: `${workersUrl}/liff/live`, icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },
     { key: 'videos', label: '動画', href: `${workersUrl}/liff/videos`, icon: 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { key: 'mypage', label: 'マイページ', href: LIFF_MYPAGE_URL, icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+    { key: 'mypage', label: 'マイページ', href: `${workersUrl}/liff/mypage`, icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
   ];
   return `<nav class="bottom-nav">${pages.map(p =>
     `<a href="${p.href}" class="${p.key === activePage ? 'active' : ''}">` +
