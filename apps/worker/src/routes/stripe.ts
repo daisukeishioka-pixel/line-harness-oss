@@ -314,9 +314,11 @@ stripe.get('/api/membership/:friendId', async (c) => {
       data: {
         friendId: friend.id,
         displayName: friend.display_name,
+        pictureUrl: friend.picture_url,
         subscriptionStatus: friend.subscription_status,
         subscriptionId: friend.subscription_id,
         currentPeriodEnd: friend.current_period_end,
+        stripeCustomerId: friend.stripe_customer_id,
         isActive: friend.subscription_status === 'active' || friend.subscription_status === 'trialing',
       },
     });

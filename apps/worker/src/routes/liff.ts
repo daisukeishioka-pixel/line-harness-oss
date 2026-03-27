@@ -983,13 +983,8 @@ var profileName = '', profilePic = '';
 initLiff().then(function() {
   _patchNavLinks();
   if (!friendId) return Promise.reject('skip'); // OAuth認証リダイレクト中
-  // LINEプロフィール取得（LIFF経由の場合のみ）
-  try { if (typeof liff !== 'undefined' && liff.isLoggedIn()) return liff.getProfile(); } catch(e) {}
-  return null;
-}).then(function(profile) {
-  if (profile) { profileName = profile.displayName; profilePic = profile.pictureUrl || ''; }
 
-  // 会員ステータス取得
+  // 会員ステータス取得（プロフィール情報もAPIから取得）
   return fetch(API + '/api/membership/' + friendId, {
     headers: { 'Accept': 'application/json' }
   }).then(function(r) { return r.json(); });
@@ -1000,6 +995,25 @@ initLiff().then(function() {
   var d = res.data;
   var s = d.subscriptionStatus || 'none';
   var info = STATUS_MAP[s] || { label: '未登録', color: '#999' };
+
+  // プロフィール情報をAPIレスポンスから取得
+  profileName = d.displayName || '';
+  profilePic = d.pictureUrl || '';
+
+  // LIFF経由の場合はLINEプロフィールで上書き
+  try {
+    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
+      liff.getProfile().then(function(p) {
+        if (p) {
+          profileName = p.displayName;
+          profilePic = p.pictureUrl || profilePic;
+          var pc = document.getElementById('profileCard');
+          if (pc) pc.querySelector('.profile-name').textContent = profileName;
+          if (pc && p.pictureUrl) { var img = pc.querySelector('img'); if (img) img.src = p.pictureUrl; }
+        }
+      }).catch(function() {});
+    }
+  } catch(e) {}
 
   // プロフィール
   var pc = document.getElementById('profileCard'); pc.style.display = '';
