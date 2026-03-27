@@ -108,17 +108,24 @@ function liffInitScript(liffId: string, workersUrl: string): string {
 
     function initLiff() {
       return liff.init({ liffId: LIFF_ID }).then(function() {
-        if (!liff.isLoggedIn()) { liff.login(); return Promise.reject('login'); }
+        if (!liff.isLoggedIn()) {
+          // ログインできない場合でもページは表示する（friendId=null のまま resolve）
+          console.warn('LIFF: not logged in – showing page without user data');
+          return Promise.resolve(null);
+        }
         return liff.getProfile();
       }).then(function(profile) {
-        if (!profile) return Promise.reject('no profile');
+        if (!profile) return null;
         return fetch(API + '/api/liff/profile', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lineUserId: profile.userId }),
         }).then(function(r) { return r.json(); });
       }).then(function(data) {
-        if (data && data.success && data.data) { friendId = data.data.id; return friendId; }
-        return Promise.reject('friend not found');
+        if (data && data.success && data.data) { friendId = data.data.id; }
+        return friendId;
+      }).catch(function(err) {
+        console.warn('LIFF init error:', err);
+        return null;
       });
     }
     function fmtDate(iso) { if (!iso) return '-'; return new Date(iso).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' }); }
@@ -175,14 +182,14 @@ liffRoutes.get('/liff', (c) => {
     liff.init({ liffId: LIFF_ID })
       .then(function() {
         if (!liff.isLoggedIn()) {
-          liff.login();
+          // ログインできなくてもホームに遷移
+          window.location.replace(API_BASE + '/liff/home');
           return;
         }
         return liff.getProfile();
       })
       .then(function(profile) {
         if (!profile) return;
-        // LINE userId からfriendIdを取得してマイページへリダイレクト
         return fetch(API_BASE + '/api/liff/profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -193,13 +200,15 @@ liffRoutes.get('/liff', (c) => {
           if (data.success && data.data && data.data.id) {
             window.location.replace(API_BASE + '/api/membership/' + data.data.id);
           } else {
-            showError('ユーザー情報が見つかりません。LINEで友だち追加してからお試しください。');
+            // ユーザー特定できなくてもホームに遷移
+            window.location.replace(API_BASE + '/liff/home');
           }
         });
       })
       .catch(function(err) {
         console.error('LIFF error:', err);
-        showError('LINEログインに失敗しました: ' + (err.message || err));
+        // エラーでもホームに遷移（画面が止まらないようにする）
+        window.location.replace(API_BASE + '/liff/home');
       });
   </script>
 </body>
@@ -363,7 +372,10 @@ liffRoutes.get('/liff/signup', (c) => {
     // LIFF初期化 → プロフィール取得 → 回答済みチェック
     liff.init({ liffId: LIFF_ID })
       .then(function() {
-        if (!liff.isLoggedIn()) { liff.login(); return; }
+        if (!liff.isLoggedIn()) {
+          showError('入会手続きにはLINEログインが必要です。LINEアプリ内のメニューからお試しください。');
+          return;
+        }
         return liff.getProfile();
       })
       .then(function(profile) {
@@ -718,6 +730,16 @@ initLiff().then(function() {
   calYear = now.getFullYear();
   calMonth = now.getMonth();
   renderCalendar();
+
+  if (!friendId) {
+    // 未ログイン: 静的コンテンツだけ表示
+    document.getElementById('calendarCard').querySelector('#goalArea').innerHTML = '';
+    document.getElementById('scheduleCard').innerHTML = '<p class="section-title">&#x1f4e1; 次回Live配信</p><p class="empty">ログインすると表示されます</p>';
+    document.getElementById('newContentCard').innerHTML = '<p class="section-title">&#x2728; 新着コンテンツ</p><p class="empty">ログインすると表示されます</p>';
+    document.getElementById('newsCard').innerHTML = '<p class="section-title">&#x1f4e2; お知らせ</p><p class="empty">ログインすると表示されます</p>';
+    return;
+  }
+
   loadActivities();
 
   // Goal
@@ -754,7 +776,7 @@ initLiff().then(function() {
     res.data.forEach(function(n, i) { var cat = newsCats[n.category] || newsCats.info; h += '<div class="news-item" style="cursor:pointer" onclick="openNewsModal(' + i + ')"><span class="news-badge" style="color:' + cat[0] + ';background:' + cat[2] + '">' + cat[0] + '</span><div class="news-title">' + esc(n.title) + '</div><div class="news-date">' + fmtDate(n.publishedAt) + '</div></div>'; });
     el.innerHTML = h;
   });
-}).catch(function(e) { if (e !== 'login') console.error(e); });
+});
 
 function openNewsModal(idx) {
   var n = allNews[idx]; if (!n) return;
@@ -792,6 +814,11 @@ function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:
 function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
 
 initLiff().then(function() {
+  if (!friendId) {
+    document.getElementById('upcomingCard').innerHTML = '<p class="section-title">&#x1f4e1; 今後のLive配信</p><p class="empty">ログインすると表示されます</p>';
+    document.getElementById('archiveCard').innerHTML = '<p class="section-title">&#x1f4fc; アーカイブ</p><p class="empty">ログインすると表示されます</p>';
+    return;
+  }
   // Upcoming
   fetch(API + '/api/membership/' + friendId + '/schedule').then(function(r) { return r.json(); }).then(function(res) {
     var el = document.getElementById('upcomingCard');
@@ -821,7 +848,7 @@ initLiff().then(function() {
     });
     el.innerHTML = h;
   });
-}).catch(function(e) { if (e !== 'login') console.error(e); });
+});
 </script></body></html>`);
 });
 
@@ -877,11 +904,15 @@ function closeVideo() { document.getElementById('videoFrame').src = ''; document
 
 initLiff().then(function() {
   renderPills();
+  if (!friendId) {
+    document.getElementById('videoList').innerHTML = '<p class="empty">ログインすると動画コンテンツが表示されます</p>';
+    return;
+  }
   fetch(API + '/api/membership/' + friendId + '/content').then(function(r) { return r.json(); }).then(function(res) {
     if (res.success && res.data && res.data.items) { allVideos = res.data.items; }
     renderList();
   });
-}).catch(function(e) { if (e !== 'login') console.error(e); });
+});
 </script></body></html>`);
 });
 
@@ -933,11 +964,14 @@ function isMember(s) { return s === 'active' || s === 'trialing' || s === 'pause
 var profileName = '', profilePic = '';
 
 initLiff().then(function() {
-  // LINEプロフィール取得
-  return liff.getProfile();
+  if (!friendId) {
+    document.getElementById('loading').innerHTML = '<div style="text-align:center;padding:20px"><p style="font-size:14px;color:var(--text);margin-bottom:16px">整体卒業サロン</p><p style="font-size:13px;color:var(--text-sub);margin-bottom:16px">マイページを表示するにはLINEログインが必要です。</p><button class="btn btn-green" onclick="location.href=\\'' + API + '/liff/signup\\'">メンバーシップに登録する</button></div>';
+    return Promise.reject('skip');
+  }
+  // LINEプロフィール取得（ログイン済みの場合のみ）
+  try { return liff.getProfile(); } catch(e) { return null; }
 }).then(function(profile) {
-  profileName = profile.displayName;
-  profilePic = profile.pictureUrl || '';
+  if (profile) { profileName = profile.displayName; profilePic = profile.pictureUrl || ''; }
 
   // 会員ステータス取得
   return fetch(API + '/api/membership/' + friendId, {
@@ -1001,7 +1035,7 @@ initLiff().then(function() {
     else if (s === 'past_due') ah += '<button class="btn btn-secondary" onclick="openPortal()">お支払い方法を更新する</button>';
     ac.innerHTML = ah;
   }
-}).catch(function(e) { if (e !== 'login') { document.getElementById('loading').innerHTML = '<p class="empty">エラーが発生しました</p>'; console.error(e); } });
+}).catch(function(e) { if (e !== 'skip') { document.getElementById('loading').innerHTML = '<p class="empty">エラーが発生しました</p>'; console.error(e); } });
 
 function openPortal() {
   var btn = event.target; btn.disabled = true; btn.textContent = '処理中...';
