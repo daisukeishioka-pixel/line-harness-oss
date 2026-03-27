@@ -100,9 +100,8 @@ function bottomNavHTML(activePage: string, workersUrl: string): string {
   ).join('')}</nav>`;
 }
 
-function liffInitScript(liffId: string, workersUrl: string): string {
+function initScript(workersUrl: string): string {
   return `
-    var LIFF_ID = '${liffId.replace(/'/g, "\\'")}';
     var API = '${workersUrl.replace(/'/g, "\\'")}';
     var friendId = null;
 
@@ -110,41 +109,32 @@ function liffInitScript(liffId: string, workersUrl: string): string {
       var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
       return m ? decodeURIComponent(m[1]) : null;
     }
+    function _getCookie(name) {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+    function _setCookie(name, val) {
+      document.cookie = name + '=' + encodeURIComponent(val) + '; path=/; max-age=31536000; SameSite=Lax';
+    }
 
-    function initLiff() {
-      // 1. URL の fid パラメータを最優先
+    function initAuth() {
+      // 1. URL の ?fid= を最優先
       var fid = _getQuery('fid');
+      if (fid) {
+        friendId = fid;
+        _setCookie('fid', fid);
+        return Promise.resolve(friendId);
+      }
+      // 2. Cookie から取得
+      fid = _getCookie('fid');
       if (fid) {
         friendId = fid;
         return Promise.resolve(friendId);
       }
-
-      // 2. LIFF SDK でログイン済みならプロフィール取得
-      return liff.init({ liffId: LIFF_ID }).then(function() {
-        if (!liff.isLoggedIn()) {
-          // 3. LIFF未ログイン → LINE Login OAuth で認証
-          var currentPath = location.pathname + location.search;
-          window.location.replace(API + '/auth/line?redirect=' + encodeURIComponent(currentPath));
-          return Promise.reject('redirecting');
-        }
-        return liff.getProfile();
-      }).then(function(profile) {
-        if (!profile) return null;
-        return fetch(API + '/api/liff/profile', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lineUserId: profile.userId }),
-        }).then(function(r) { return r.json(); });
-      }).then(function(data) {
-        if (data && data.success && data.data) { friendId = data.data.id; }
-        return friendId;
-      }).catch(function(err) {
-        if (err === 'redirecting') return null;
-        // LIFF初期化エラー → OAuth認証にフォールバック
-        console.warn('LIFF init error, falling back to OAuth:', err);
-        var currentPath = location.pathname + location.search;
-        window.location.replace(API + '/auth/line?redirect=' + encodeURIComponent(currentPath));
-        return null;
-      });
+      // 3. どちらもなければ LINE Login OAuth で認証
+      var currentPath = location.pathname + location.search;
+      window.location.replace(API + '/auth/line?redirect=' + encodeURIComponent(currentPath));
+      return new Promise(function() {}); // リダイレクト中は永久待機
     }
 
     // ボトムナビのリンクに fid を自動付与
@@ -164,85 +154,18 @@ function liffInitScript(liffId: string, workersUrl: string): string {
   `;
 }
 
-// ─── LIFF マイページ エントリーポイント ──────────────────────────
+// ─── エントリーポイント ──────────────────────────────────────────
 
 /**
- * GET /liff — LIFF SDK を読み込み、プロフィール取得後にマイページへ遷移
+ * GET /liff — ホームへリダイレクト（fid があればそのまま引き継ぎ）
  */
 liffRoutes.get('/liff', (c) => {
-  const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   const workersUrl = new URL(c.req.url).origin;
-
-  return c.html(`<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>整体卒業サロン</title>
-  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif; background: #f7f7f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .loader { text-align: center; }
-    .spinner { width: 40px; height: 40px; border: 3px solid #e0e0e0; border-top-color: #1a6b5a; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .loader p { font-size: 14px; color: #888; }
-    .error { color: #e53e3e; font-size: 14px; text-align: center; padding: 24px; }
-    .error button { margin-top: 12px; padding: 10px 24px; background: #1a6b5a; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <div class="loader" id="loader">
-    <div class="spinner"></div>
-    <p>読み込み中...</p>
-  </div>
-  <div class="error" id="error" style="display:none">
-    <p id="errorMsg">エラーが発生しました</p>
-    <button onclick="location.reload()">再試行</button>
-  </div>
-  <script>
-    var LIFF_ID = '${escapeHtml(liffId)}';
-    var API_BASE = '${escapeHtml(workersUrl)}';
-
-    function showError(msg) {
-      document.getElementById('loader').style.display = 'none';
-      document.getElementById('error').style.display = 'block';
-      document.getElementById('errorMsg').textContent = msg || 'エラーが発生しました';
-    }
-
-    liff.init({ liffId: LIFF_ID })
-      .then(function() {
-        if (!liff.isLoggedIn()) {
-          // LIFF未ログイン → LINE Login OAuthで認証してホームへ
-          window.location.replace(API_BASE + '/auth/line?redirect=' + encodeURIComponent('/liff/home'));
-          return;
-        }
-        return liff.getProfile();
-      })
-      .then(function(profile) {
-        if (!profile) return;
-        return fetch(API_BASE + '/api/liff/profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lineUserId: profile.userId }),
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (data.success && data.data && data.data.id) {
-            window.location.replace(API_BASE + '/liff/home?fid=' + data.data.id);
-          } else {
-            window.location.replace(API_BASE + '/auth/line?redirect=' + encodeURIComponent('/liff/home'));
-          }
-        });
-      })
-      .catch(function(err) {
-        console.error('LIFF error:', err);
-        // LIFF初期化エラー → OAuth認証にフォールバック
-        window.location.replace(API_BASE + '/auth/line?redirect=' + encodeURIComponent('/liff/home'));
-      });
-  </script>
-</body>
-</html>`);
+  const fid = c.req.query('fid') || '';
+  const target = fid
+    ? `${workersUrl}/liff/home?fid=${encodeURIComponent(fid)}`
+    : `${workersUrl}/liff/home`;
+  return c.redirect(target, 302);
 });
 
 // ─── 入会フロー (/liff/signup) ───────────────────────────────────
@@ -259,7 +182,6 @@ liffRoutes.get('/liff/signup', (c) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>整体卒業サロン - 入会手続き</title>
-  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     :root { --green: #1a6b5a; --green-light: #e8f5f0; --bg: #f7f7f5; --card: #fff; --text: #333; --text-sub: #888; --border: #e0e0e0; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -383,10 +305,17 @@ liffRoutes.get('/liff/signup', (c) => {
   </div>
 
   <script>
-    var LIFF_ID = '${escapeHtml(liffId)}';
     var API = '${escapeHtml(workersUrl)}';
     var friendId = null;
-    var lineUserId = null;
+
+    function _getQuery(name) {
+      var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+    function _getCookie(name) {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
 
     function showView(id) {
       ['loading','formView','skipView','errorView'].forEach(function(v) {
@@ -399,32 +328,14 @@ liffRoutes.get('/liff/signup', (c) => {
       showView('errorView');
     }
 
-    // LIFF初期化 → プロフィール取得 → 回答済みチェック
-    liff.init({ liffId: LIFF_ID })
-      .then(function() {
-        if (!liff.isLoggedIn()) {
-          showError('入会手続きにはLINEログインが必要です。LINEアプリ内のメニューからお試しください。');
-          return;
-        }
-        return liff.getProfile();
-      })
-      .then(function(profile) {
-        if (!profile) return;
-        lineUserId = profile.userId;
-
-        // friendIdを取得
-        return fetch(API + '/api/liff/profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lineUserId: profile.userId }),
-        }).then(function(r) { return r.json(); });
-      })
-      .then(function(data) {
-        if (!data || !data.success || !data.data) {
-          showError('ユーザー情報が見つかりません。LINEで友だち追加してからお試しください。');
-          return;
-        }
-        friendId = data.data.id;
+    // fid取得 → 回答済みチェック
+    (function() {
+      friendId = _getQuery('fid') || _getCookie('fid');
+      if (!friendId) {
+        // fid がなければ OAuth 認証へ
+        window.location.replace(API + '/auth/line?redirect=' + encodeURIComponent('/liff/signup'));
+        return;
+      }
 
         // 回答済みかチェック（metadataにsignup_completedがあるか）
         return fetch(API + '/api/liff/signup-check', {
@@ -455,8 +366,9 @@ liffRoutes.get('/liff/signup', (c) => {
       })
       .catch(function(err) {
         console.error('Init error:', err);
-        showError('LINEログインに失敗しました: ' + (err.message || err));
+        showError('エラーが発生しました: ' + (err.message || err));
       });
+    })();
 
     function handleSubmit() {
       // バリデーション
@@ -636,7 +548,6 @@ liffRoutes.get('/liff/home', (c) => {
   const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   const w = new URL(c.req.url).origin;
   return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>ホーム - 整体卒業サロン</title>
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>${memberPageCSS()}</style></head><body>
 <div class="header-bar"><h1>整体卒業サロン</h1><p>ホーム</p></div>
 <div class="container">
@@ -650,7 +561,7 @@ ${bottomNavHTML('home', w)}
 <div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
 <div class="memo-modal" id="newsModal"><div class="memo-box" style="max-width:360px;max-height:80vh;overflow-y:auto"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="news-badge" id="newsModalBadge"></span><button onclick="closeNewsModal()" style="background:none;border:none;font-size:20px;color:var(--text-sub);cursor:pointer">&times;</button></div><h3 id="newsModalTitle" style="font-size:16px;font-weight:700;margin-bottom:8px"></h3><p id="newsModalDate" style="font-size:11px;color:var(--text-sub);margin-bottom:12px"></p><div id="newsModalBody" style="font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap"></div></div></div>
 <script>
-${liffInitScript(liffId, w)}
+${initScript(w)}
 var calYear, calMonth, activities = [], memoDate = '';
 
 function renderCalendar() {
@@ -754,7 +665,7 @@ var allNews = [];
 var newsCats = { info: ['お知らせ','#1a6b5a','#e8f5f0'], event: ['イベント','#d4a853','#faf3e0'], update: ['更新','#2563eb','#eff6ff'], campaign: ['キャンペーン','#dc2626','#fef2f2'] };
 
 // Init
-initLiff().then(function() {
+initAuth().then(function() {
   _patchNavLinks();
   if (!friendId) return; // OAuth認証リダイレクト中
   // カレンダー: まず空で描画してからデータ取得
@@ -821,7 +732,6 @@ liffRoutes.get('/liff/live', (c) => {
   const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   const w = new URL(c.req.url).origin;
   return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Live配信 - 整体卒業サロン</title>
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>${memberPageCSS()}</style></head><body>
 <div class="header-bar"><h1>整体卒業サロン</h1><p>Live配信</p></div>
 <div class="container">
@@ -831,11 +741,11 @@ liffRoutes.get('/liff/live', (c) => {
 ${bottomNavHTML('live', w)}
 <div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
 <script>
-${liffInitScript(liffId, w)}
+${initScript(w)}
 function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
 function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
 
-initLiff().then(function() {
+initAuth().then(function() {
   _patchNavLinks();
   if (!friendId) return;
   // Upcoming
@@ -877,7 +787,6 @@ liffRoutes.get('/liff/videos', (c) => {
   const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   const w = new URL(c.req.url).origin;
   return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>動画コンテンツ - 整体卒業サロン</title>
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>${memberPageCSS()}</style></head><body>
 <div class="header-bar"><h1>整体卒業サロン</h1><p>動画コンテンツ</p></div>
 <div class="container">
@@ -887,7 +796,7 @@ liffRoutes.get('/liff/videos', (c) => {
 ${bottomNavHTML('videos', w)}
 <div class="video-modal" id="videoModal"><div class="video-modal-close" onclick="closeVideo()">&times;</div><iframe id="videoFrame" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
 <script>
-${liffInitScript(liffId, w)}
+${initScript(w)}
 var allVideos = [], selectedCat = 'all';
 var CATS = [{key:'all',label:'すべて'},{key:'neck_shoulder',label:'首・肩'},{key:'back_chest',label:'背中・胸'},{key:'pelvis_waist',label:'骨盤・腰'},{key:'morning_routine',label:'朝ルーティン'}];
 var CAT_LABELS = {neck_shoulder:'首・肩',back_chest:'背中・胸',pelvis_waist:'骨盤・腰',morning_routine:'朝ルーティン',archive:'アーカイブ'};
@@ -921,7 +830,7 @@ function watchVideo(contentId, url) {
 function openVideo(url) { if (!url) return; var e = url; var yt = url.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([^&]+)/); if (yt) e = 'https://www.youtube.com/embed/' + yt[1] + '?autoplay=1'; document.getElementById('videoFrame').src = e; document.getElementById('videoModal').classList.add('show'); }
 function closeVideo() { document.getElementById('videoFrame').src = ''; document.getElementById('videoModal').classList.remove('show'); }
 
-initLiff().then(function() {
+initAuth().then(function() {
   _patchNavLinks();
   renderPills();
   if (!friendId) return;
@@ -939,7 +848,6 @@ liffRoutes.get('/liff/mypage', (c) => {
   const w = new URL(c.req.url).origin;
   const liffId = (c.env as unknown as Record<string, string | undefined>).LIFF_ID || DEFAULT_LIFF_ID;
   return c.html(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>マイページ - 整体卒業サロン</title>
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>${memberPageCSS()}
   .profile-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
   .profile-header img { width: 48px; height: 48px; border-radius: 50%; }
@@ -966,7 +874,7 @@ liffRoutes.get('/liff/mypage', (c) => {
 </div>
 ${bottomNavHTML('mypage', w)}
 <script>
-${liffInitScript(liffId, w)}
+${initScript(w)}
 var STATUS_MAP = {
   active: { label: 'アクティブ', color: '#1a6b5a' },
   trialing: { label: 'アクティブ', color: '#1a6b5a' },
@@ -980,7 +888,7 @@ function isMember(s) { return s === 'active' || s === 'trialing' || s === 'pause
 
 var profileName = '', profilePic = '';
 
-initLiff().then(function() {
+initAuth().then(function() {
   _patchNavLinks();
   if (!friendId) return Promise.reject('skip'); // OAuth認証リダイレクト中
 
@@ -999,21 +907,6 @@ initLiff().then(function() {
   // プロフィール情報をAPIレスポンスから取得
   profileName = d.displayName || '';
   profilePic = d.pictureUrl || '';
-
-  // LIFF経由の場合はLINEプロフィールで上書き
-  try {
-    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
-      liff.getProfile().then(function(p) {
-        if (p) {
-          profileName = p.displayName;
-          profilePic = p.pictureUrl || profilePic;
-          var pc = document.getElementById('profileCard');
-          if (pc) pc.querySelector('.profile-name').textContent = profileName;
-          if (pc && p.pictureUrl) { var img = pc.querySelector('img'); if (img) img.src = p.pictureUrl; }
-        }
-      }).catch(function() {});
-    }
-  } catch(e) {}
 
   // プロフィール
   var pc = document.getElementById('profileCard'); pc.style.display = '';
