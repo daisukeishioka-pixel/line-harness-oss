@@ -106,6 +106,8 @@ export async function initMypage(): Promise<void> {
 
   container.innerHTML = `
     <div class="mypage">
+      <a href="https://liff.line.me/2009595752-X90IWgrz?page=membership" class="back-link">← マイページに戻る</a>
+
       <div class="card mypage-header">
         <div class="profile">
           ${profile.pictureUrl ? `<img src="${profile.pictureUrl}" alt="" />` : ''}

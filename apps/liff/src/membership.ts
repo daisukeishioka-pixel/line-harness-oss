@@ -392,10 +392,13 @@ function render(): void {
     `;
   }
 
-  // Manage / Cancel button
+  // Receipt / Manage / Cancel buttons
   if (hasSubscription) {
     html += `
       <div class="mp-card" style="text-align:center;">
+        <button class="mp-btn mp-btn-secondary" id="receiptBtn" style="margin-bottom:10px;">
+          領収書を発行する
+        </button>
         <button class="mp-btn mp-btn-danger" id="portalBtn">
           ${isPastDue ? '支払い方法を更新する' : 'プランを管理・解約する'}
         </button>
@@ -423,6 +426,12 @@ function attachEvents(): void {
 
   const portalBtn = document.getElementById('portalBtn');
   portalBtn?.addEventListener('click', () => openPortal());
+
+  const receiptBtn = document.getElementById('receiptBtn');
+  receiptBtn?.addEventListener('click', () => {
+    const receiptUrl = 'https://liff.line.me/2009595752-X90IWgrz?page=mypage';
+    window.location.href = receiptUrl;
+  });
 }
 
 async function startCheckout(): Promise<void> {
