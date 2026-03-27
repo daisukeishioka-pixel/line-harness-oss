@@ -368,6 +368,67 @@ async function handleEvent(
 
     return;
   }
+
+  // ─── Postback イベント（リッチメニュー対応） ────────────────────
+  if (event.type === 'postback') {
+    const userId = event.source.type === 'user' ? event.source.userId : undefined;
+    if (!userId) return;
+
+    const data = (event as { postback: { data: string } }).postback.data;
+    const params = new URLSearchParams(data);
+    const page = params.get('page');
+
+    if (!page) return;
+
+    const friend = await getFriendByLineUserId(db, userId);
+    if (!friend) return;
+
+    // Workers のベースURL を構築（環境変数から取得できない場合のフォールバック）
+    const baseUrl = (env as unknown as Record<string, string | undefined>).WORKERS_URL || '';
+
+    const PAGE_MAP: Record<string, { path: string; title: string }> = {
+      home: { path: '/liff/home', title: 'ホーム' },
+      live: { path: '/liff/live', title: 'Live配信' },
+      videos: { path: '/liff/videos', title: '動画コンテンツ' },
+      mypage: { path: '/liff/mypage', title: 'マイページ' },
+    };
+
+    const target = PAGE_MAP[page];
+    if (!target) return;
+
+    const url = `${baseUrl}${target.path}?fid=${friend.id}`;
+
+    const replyToken = (event as { replyToken?: string }).replyToken;
+    if (replyToken) {
+      try {
+        await lineClient.replyMessage(replyToken, [{
+          type: 'flex',
+          altText: target.title,
+          contents: {
+            type: 'bubble',
+            body: {
+              type: 'box', layout: 'vertical', spacing: 'md',
+              contents: [
+                { type: 'text', text: target.title, weight: 'bold', size: 'lg', color: '#1a6b5a' },
+                { type: 'text', text: '下のボタンをタップして開きます', size: 'sm', color: '#888888', margin: 'sm' },
+              ],
+            },
+            footer: {
+              type: 'box', layout: 'vertical',
+              contents: [{
+                type: 'button', style: 'primary', color: '#1a6b5a',
+                action: { type: 'uri', label: `${target.title}を開く`, uri: url },
+              }],
+            },
+          },
+        }]);
+      } catch (err) {
+        console.error('Failed to reply to postback:', err);
+      }
+    }
+
+    return;
+  }
 }
 
 /**

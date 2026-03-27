@@ -56,6 +56,7 @@ export type Env = {
     STRIPE_WEBHOOK_SECRET?: string;
     RICH_MENU_MEMBER_ID?: string;
     RESEND_API_KEY?: string;
+    WORKERS_URL?: string;
   };
 };
 
