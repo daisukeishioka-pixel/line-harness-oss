@@ -4,6 +4,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchApi } from '@/lib/api'
 import Header from '@/components/layout/header'
 
+function toSeconds(timeStr: string): number | null {
+  if (!timeStr) return null
+  const parts = timeStr.split(':')
+  if (parts.length === 2) return parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0)
+  if (parts.length === 1) return parseInt(parts[0]) || 0
+  return null
+}
+
+function toMinSec(seconds: number): string {
+  const min = Math.floor(seconds / 60)
+  const sec = seconds % 60
+  return `${min}:${String(sec).padStart(2, '0')}`
+}
+
 function extractYoutubeId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
@@ -82,7 +96,7 @@ export default function ContentsPage() {
         description: form.description || null,
         videoUrl: form.videoUrl || null,
         thumbnailUrl: form.thumbnailUrl || null,
-        duration: form.duration ? Number(form.duration) : null,
+        duration: toSeconds(form.duration),
         sortOrder: Number(form.sortOrder) || 0,
       }
 
@@ -105,7 +119,7 @@ export default function ContentsPage() {
       description: item.description || '',
       videoUrl: item.videoUrl || '',
       thumbnailUrl: item.thumbnailUrl || '',
-      duration: item.duration ? String(item.duration) : '',
+      duration: item.duration ? toMinSec(item.duration) : '',
       sortOrder: String(item.sortOrder),
     })
     setEditId(item.id)
@@ -195,8 +209,8 @@ export default function ContentsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">再生時間（秒）</label>
-                <input type="number" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} />
+                <label className="block text-xs font-medium text-gray-600 mb-1">再生時間</label>
+                <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="5:30" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">表示順</label>
