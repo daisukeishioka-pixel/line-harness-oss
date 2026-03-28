@@ -521,4 +521,20 @@ export const api = {
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/schedules/${id}`, { method: 'DELETE' }),
   },
+  blog: {
+    list: (params?: { category?: string; limit?: number; offset?: number }) =>
+      fetchApi<ApiResponse<{ items: { id: string; slug: string; title: string; excerpt: string; category: string; ogImageUrl: string | null; isPublished: boolean; publishedAt: string | null; createdAt: string; updatedAt: string }[]; total: number }>>(
+        '/api/blog/posts?' + new URLSearchParams({ status: 'all', ...Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])) }),
+      ),
+    get: (id: string) =>
+      fetchApi<ApiResponse<{ id: string; slug: string; title: string; excerpt: string; body: string; category: string; ogImageUrl: string | null; isPublished: boolean; publishedAt: string | null; createdAt: string; updatedAt: string }>>(
+        `/api/blog/posts/by-id/${id}`,
+      ),
+    create: (data: { slug: string; title: string; excerpt: string; body: string; category: string; ogImageUrl?: string | null; isPublished?: boolean }) =>
+      fetchApi<ApiResponse<unknown>>('/api/blog/posts', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<{ slug: string; title: string; excerpt: string; body: string; category: string; ogImageUrl: string | null; isPublished: boolean }>) =>
+      fetchApi<ApiResponse<unknown>>(`/api/blog/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/blog/posts/${id}?hard=1`, { method: 'DELETE' }),
+  },
 }

@@ -42,6 +42,7 @@ import { trackingSources } from './routes/tracking-sources.js';
 import { csvExport } from './routes/csv-export.js';
 import { autoReplies } from './routes/auto-replies.js';
 import { staff } from './routes/staff.js';
+import { blog } from './routes/blog.js';
 
 export type Env = {
   Bindings: {
@@ -103,6 +104,7 @@ app.route('/', trackingSources);
 app.route('/', csvExport);
 app.route('/', autoReplies);
 app.route('/', staff);
+app.route('/', blog);
 
 // 404 fallback
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));

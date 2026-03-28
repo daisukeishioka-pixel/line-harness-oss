@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@line-crm/shared": "workspace:*",
+    "@uiw/react-md-editor": "^4.0.4",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
