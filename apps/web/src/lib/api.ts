@@ -32,15 +32,15 @@ export type ApiBroadcast = Broadcast
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787'
 
 /**
- * Read the API key from localStorage first (set during login), falling back to
- * the build-time env var for local development without the login page.
+ * Read the API key from localStorage (set during login).
+ * SECURITY: API key is never embedded in the client bundle.
  */
 function getApiKey(): string {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem('lh_api_key')
     if (stored) return stored
   }
-  return process.env.NEXT_PUBLIC_API_KEY || ''
+  return ''
 }
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {

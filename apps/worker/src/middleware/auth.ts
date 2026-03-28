@@ -34,9 +34,23 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   }
 
   const token = authHeader.slice('Bearer '.length);
-  if (token !== c.env.API_KEY) {
-    return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+  // メインAPIキーで認証
+  if (token === c.env.API_KEY) {
+    return next();
   }
 
-  return next();
+  // スタッフAPIキーで認証
+  try {
+    const staffMember = await c.env.DB.prepare(
+      `SELECT id, role FROM staff_members WHERE api_key = ? AND is_active = 1`,
+    ).bind(token).first<{ id: string; role: string }>();
+    if (staffMember) {
+      return next();
+    }
+  } catch {
+    // DB error — fall through to unauthorized
+  }
+
+  return c.json({ success: false, error: 'Unauthorized' }, 401);
 }

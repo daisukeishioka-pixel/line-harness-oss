@@ -200,7 +200,7 @@ export function buildMessage(messageType: string, messageContent: string): Messa
   if (messageType === 'flex') {
     try {
       const contents = JSON.parse(messageContent);
-      return { type: 'flex', altText: 'Message', contents };
+      return { type: 'flex', altText: extractFlexAltText(contents), contents };
     } catch {
       return { type: 'text', text: messageContent };
     }
@@ -208,4 +208,28 @@ export function buildMessage(messageType: string, messageContent: string): Messa
 
   // Fallback
   return { type: 'text', text: messageContent };
+}
+
+/** Flex Message JSONからテキスト要素を抽出してaltTextとして使用 */
+function extractFlexAltText(contents: unknown): string {
+  try {
+    const texts: string[] = [];
+    function walk(node: unknown): void {
+      if (!node || typeof node !== 'object') return;
+      const obj = node as Record<string, unknown>;
+      if (obj.type === 'text' && typeof obj.text === 'string') {
+        texts.push(obj.text);
+      }
+      if (Array.isArray(obj.contents)) {
+        (obj.contents as unknown[]).forEach(walk);
+      }
+      if (obj.body) walk(obj.body);
+      if (obj.header) walk(obj.header);
+      if (obj.footer) walk(obj.footer);
+    }
+    walk(contents);
+    return texts.slice(0, 2).join(' ') || 'お知らせ';
+  } catch {
+    return 'お知らせ';
+  }
 }
