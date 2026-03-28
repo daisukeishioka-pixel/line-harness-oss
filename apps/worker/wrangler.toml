@@ -11,6 +11,10 @@ binding = "DB"
 database_name = "line-crm"
 database_id = "097ec44d-c37c-4cb7-88ef-e56873369e90"
 
+[[r2_buckets]]
+binding = "IMAGE_BUCKET"
+bucket_name = "line-harness-images"
+
 [triggers]
 crons = ["*/5 * * * *"]
 # Note: sequence delivery (7day_challenge) runs within the */5 cron

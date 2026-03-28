@@ -43,10 +43,13 @@ import { csvExport } from './routes/csv-export.js';
 import { autoReplies } from './routes/auto-replies.js';
 import { staff } from './routes/staff.js';
 import { blog } from './routes/blog.js';
+import { upload } from './routes/upload.js';
 
 export type Env = {
   Bindings: {
     DB: D1Database;
+    IMAGE_BUCKET: R2Bucket;
+    R2_PUBLIC_URL: string;
     LINE_CHANNEL_SECRET: string;
     LINE_CHANNEL_ACCESS_TOKEN: string;
     API_KEY: string;
@@ -105,6 +108,7 @@ app.route('/', csvExport);
 app.route('/', autoReplies);
 app.route('/', staff);
 app.route('/', blog);
+app.route('/', upload);
 
 // 404 fallback
 app.notFound((c) => c.json({ success: false, error: 'Not found' }, 404));

@@ -521,6 +521,24 @@ export const api = {
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/schedules/${id}`, { method: 'DELETE' }),
   },
+  upload: {
+    image: async (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`${API_URL}/api/upload/image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getApiKey()}`,
+        },
+        body: formData,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null
+        throw new Error(body?.error ?? `アップロードエラー: ${res.status}`)
+      }
+      return res.json() as Promise<ApiResponse<{ url: string; key: string }>>
+    },
+  },
   blog: {
     list: (params?: { category?: string; limit?: number; offset?: number }) =>
       fetchApi<ApiResponse<{ items: { id: string; slug: string; title: string; excerpt: string; category: string; ogImageUrl: string | null; isPublished: boolean; publishedAt: string | null; createdAt: string; updatedAt: string }[]; total: number }>>(

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import type { ICommand, ExecuteState, TextAreaTextApi } from '@uiw/react-md-editor'
 import { api } from '@/lib/api'
 import Header from '@/components/layout/header'
 
@@ -15,6 +16,9 @@ const CATEGORIES = [
   { value: 'お知らせ', label: 'お知らせ' },
   { value: 'コラム', label: 'コラム' },
 ]
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 type FormState = {
   title: string
@@ -38,6 +42,16 @@ function generateSlug() {
   return `post-${Date.now().toString(36)}`
 }
 
+function validateImageFile(file: File): string | null {
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return '対応形式: JPG, PNG, WebP のみアップロード可能です'
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    return 'ファイルサイズは5MB以下にしてください'
+  }
+  return null
+}
+
 function BlogEditInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -49,6 +63,11 @@ function BlogEditInner() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [slugManual, setSlugManual] = useState(false)
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const thumbnailInputRef = useRef<HTMLInputElement>(null)
+  const editorImageInputRef = useRef<HTMLInputElement>(null)
+  const editorInsertRef = useRef<((url: string) => void) | null>(null)
 
   const loadPost = useCallback(async () => {
     if (!editId) return
@@ -136,6 +155,86 @@ function BlogEditInner() {
     setForm({ ...form, slug: generateSlug() })
   }
 
+  // ── 画像アップロード共通処理 ──
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const validationError = validateImageFile(file)
+    if (validationError) {
+      setError(validationError)
+      return null
+    }
+    try {
+      const res = await api.upload.image(file)
+      if (res.success) {
+        return res.data.url
+      }
+      setError('アップロードに失敗しました')
+      return null
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'アップロードに失敗しました')
+      return null
+    }
+  }
+
+  // ── サムネイル画像アップロード ──
+  const handleThumbnailUpload = async (file: File) => {
+    setThumbnailUploading(true)
+    setError('')
+    const url = await uploadImage(file)
+    if (url) {
+      setForm((prev) => ({ ...prev, ogImageUrl: url }))
+    }
+    setThumbnailUploading(false)
+  }
+
+  const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleThumbnailUpload(file)
+    e.target.value = ''
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file && file.type.startsWith('image/')) {
+      handleThumbnailUpload(file)
+    }
+  }
+
+  // ── Markdownエディタ内画像挿入 ──
+  const handleEditorImageUpload = async (file: File) => {
+    setError('')
+    const url = await uploadImage(file)
+    if (url && editorInsertRef.current) {
+      editorInsertRef.current(url)
+    }
+  }
+
+  const handleEditorImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleEditorImageUpload(file)
+    e.target.value = ''
+  }
+
+  // MDEditor custom command for image upload
+  const imageUploadCommand: ICommand = {
+    name: 'image-upload',
+    keyCommand: 'image-upload',
+    buttonProps: { 'aria-label': '画像をアップロード', title: '画像をアップロード' },
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M17 3H3a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 12H3V5h14v10zm-5-3.5l-2.5 3-1.75-2.25L5.5 15h9l-3.5-4.5z" />
+        <path d="M8.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
+      </svg>
+    ),
+    execute: (_state: ExecuteState, editorApi: TextAreaTextApi) => {
+      editorInsertRef.current = (url: string) => {
+        editorApi?.replaceSelection(`![画像](${url})`)
+      }
+      editorImageInputRef.current?.click()
+    },
+  }
+
   if (loading) {
     return (
       <div>
@@ -160,6 +259,22 @@ function BlogEditInner() {
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
       )}
+
+      {/* Hidden file inputs */}
+      <input
+        ref={thumbnailInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleThumbnailFileChange}
+      />
+      <input
+        ref={editorImageInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleEditorImageFileChange}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* メインカラム */}
@@ -207,6 +322,8 @@ function BlogEditInner() {
               onChange={(val) => setForm({ ...form, body: val ?? '' })}
               height={400}
               preview="live"
+              commands={undefined}
+              extraCommands={[imageUploadCommand as never]}
             />
           </div>
         </div>
@@ -250,24 +367,63 @@ function BlogEditInner() {
               </select>
             </div>
 
+            {/* サムネイル画像 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">サムネイル画像URL</label>
-              <input
-                value={form.ogImageUrl}
-                onChange={(e) => setForm({ ...form, ogImageUrl: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="https://example.com/image.jpg"
-              />
-              {form.ogImageUrl && /^https?:\/\//.test(form.ogImageUrl) && (
-                <div className="mt-2 rounded-lg overflow-hidden border border-gray-200">
-                  <img
-                    src={form.ogImageUrl}
-                    alt="サムネイルプレビュー"
-                    className="w-full h-32 object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                </div>
-              )}
+              <label className="block text-sm font-medium text-gray-700 mb-1">サムネイル画像</label>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={form.ogImageUrl}
+                  onChange={(e) => setForm({ ...form, ogImageUrl: e.target.value })}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="https://example.com/image.jpg"
+                />
+                <button
+                  type="button"
+                  onClick={() => thumbnailInputRef.current?.click()}
+                  disabled={thumbnailUploading}
+                  className="px-3 py-2 text-xs font-medium text-white rounded-lg whitespace-nowrap disabled:opacity-50"
+                  style={{ backgroundColor: '#06C755' }}
+                >
+                  {thumbnailUploading ? '...' : 'アップロード'}
+                </button>
+              </div>
+
+              {/* ドラッグ＆ドロップエリア */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+                  dragOver
+                    ? 'border-green-400 bg-green-50'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {thumbnailUploading ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    アップロード中...
+                  </div>
+                ) : form.ogImageUrl && /^https?:\/\//.test(form.ogImageUrl) ? (
+                  <div>
+                    <img
+                      src={form.ogImageUrl}
+                      alt="サムネイルプレビュー"
+                      className="w-full h-32 object-cover rounded-lg"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                    <p className="mt-2 text-xs text-gray-400">画像をドラッグ&ドロップで差し替え</p>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-400">
+                    <p>画像をドラッグ&ドロップ</p>
+                    <p className="text-xs mt-1">JPG, PNG, WebP（5MB以下）</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>
