@@ -337,13 +337,13 @@ liffRoutes.get('/liff/signup', (c) => {
         return;
       }
 
-        // 回答済みかチェック（metadataにsignup_completedがあるか）
-        return fetch(API + '/api/liff/signup-check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ friendId: friendId }),
-        }).then(function(r) { return r.json(); });
+      // 回答済みかチェック（metadataにsignup_completedがあるか）
+      fetch(API + '/api/liff/signup-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId: friendId }),
       })
+      .then(function(r) { return r.json(); })
       .then(function(check) {
         if (!check) return;
         if (check.data && check.data.alreadySignedUp) {
